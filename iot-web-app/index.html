@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentino BLE Tool</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header id="app-header">
+    <div class="header-left">
+      <div class="logo-mark"></div>
+      <h1>Sentino<span class="accent">BLE</span></h1>
+      <span class="header-divider"></span>
+      <span class="header-subtitle" id="header-screen-label">authenticate</span>
+    </div>
+    <div class="header-right">
+      <button class="btn secondary small" id="btn-serial">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M4 6h6M4 8.5h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+        <span class="btn-text" id="btn-serial-text">Serial</span>
+      </button>
+      <button class="icon-btn" id="btn-toggle-debug" title="Toggle debug panel">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="3" width="14" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M4 6h8M4 9h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="connection-status" id="conn-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span class="status-text" id="status-text">disconnected</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main id="app-main">
+
+    <!-- SCREEN 1: LOGIN -->
+    <section class="screen active" id="screen-login">
+      <div class="screen-inner narrow">
+        <div class="screen-badge">01</div>
+        <h2>Authenticate</h2>
+        <p class="screen-desc">Connect to the Sentino IoT platform. UID-based auth — new UIDs auto-register.</p>
+        <form id="form-login" autocomplete="off">
+          <div class="field">
+            <label for="input-uid">UID</label>
+            <input type="text" id="input-uid" value="test_user_001" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="input-password">Password</label>
+            <input type="password" id="input-password" value="test123456">
+          </div>
+          <button type="submit" class="btn primary" id="btn-login">
+            <span class="btn-text">Login</span>
+            <span class="btn-spinner"></span>
+          </button>
+        </form>
+        <div class="info-card hidden" id="login-result">
+          <div class="info-row"><span class="info-label">userId</span><span class="info-value" id="info-userId">—</span></div>
+          <div class="info-row"><span class="info-label">assetId</span><span class="info-value" id="info-assetId">—</span></div>
+          <div class="info-row"><span class="info-label">token</span><span class="info-value mono truncate" id="info-token">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: SCAN -->
+    <section class="screen" id="screen-scan">
+      <div class="screen-inner narrow">
+        <div class="screen-badge">02</div>
+        <h2>Scan Devices</h2>
+        <p class="screen-desc">Search for nearby BLE devices broadcasting on Service UUID <code>0xA101</code>.</p>
+        <div class="info-card compact">
+          <div class="info-row"><span class="info-label">userId</span><span class="info-value" id="scan-userId">—</span></div>
+          <div class="info-row"><span class="info-label">assetId</span><span class="info-value" id="scan-assetId">—</span></div>
+        </div>
+        <button class="btn primary large" id="btn-scan">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2" fill="currentColor"/><path d="M10 1v3M10 16v3M1 10h3M16 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span class="btn-text">Scan BLE Devices</span>
+          <span class="btn-spinner"></span>
+        </button>
+        <p class="hint">Chrome will show a device picker. Select your Sentino device.</p>
+      </div>
+    </section>
+
+    <!-- SCREEN 3: PROVISIONING CONFIG -->
+    <section class="screen" id="screen-config">
+      <div class="screen-inner">
+        <div class="screen-badge">03</div>
+        <h2>Provision Device</h2>
+        <p class="screen-desc">Configure WiFi credentials and bind device to your account.</p>
+        <div class="config-grid">
+          <div class="config-col">
+            <h3>Device Info</h3>
+            <div class="info-card">
+              <div class="info-row"><span class="info-label">PID</span><span class="info-value mono" id="dev-pid">—</span></div>
+              <div class="info-row"><span class="info-label">UUID</span><span class="info-value mono" id="dev-uuid">—</span></div>
+              <div class="info-row"><span class="info-label">Firmware</span><span class="info-value" id="dev-version">—</span></div>
+              <div class="info-row"><span class="info-label">Bind</span><span class="info-value" id="dev-bind">—</span></div>
+              <div class="info-row"><span class="info-label">WiFi MAC</span><span class="info-value mono" id="dev-wifi-mac">—</span></div>
+              <div class="info-row"><span class="info-label">BLE MAC</span><span class="info-value mono" id="dev-ble-mac">—</span></div>
+            </div>
+          </div>
+          <div class="config-col">
+            <h3>WiFi Configuration</h3>
+            <div class="field">
+              <label for="input-device-uuid">Device UUID</label>
+              <input type="text" id="input-device-uuid" placeholder="from device barcode" spellcheck="false">
+            </div>
+            <div class="wifi-scan-row">
+              <button class="btn secondary small" id="btn-scan-wifi">
+                <span class="btn-text">Scan WiFi</span>
+                <span class="btn-spinner"></span>
+              </button>
+            </div>
+            <div class="field">
+              <label for="input-ssid">SSID</label>
+              <div class="input-with-select">
+                <input type="text" id="input-ssid" placeholder="WiFi network name" spellcheck="false">
+                <select id="select-ssid" class="hidden">
+                  <option value="">Select from scan...</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="input-wifi-pw">Password</label>
+              <input type="password" id="input-wifi-pw" placeholder="WiFi password">
+            </div>
+            <button class="btn primary" id="btn-provision">
+              <span class="btn-text">Start Provisioning</span>
+              <span class="btn-spinner"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 4: PROVISIONING PROGRESS -->
+    <section class="screen" id="screen-progress">
+      <div class="screen-inner narrow">
+        <div class="screen-badge">04</div>
+        <h2>Provisioning</h2>
+        <p class="screen-desc">Binding device to your account...</p>
+        <div class="steps-list" id="steps-list">
+          <div class="step" data-step="encrypt">
+            <div class="step-indicator"><span class="step-icon"></span></div>
+            <div class="step-body">
+              <span class="step-title">Encrypt provisioning data</span>
+              <span class="step-detail" id="step-detail-encrypt"></span>
+            </div>
+          </div>
+          <div class="step" data-step="send">
+            <div class="step-indicator"><span class="step-icon"></span></div>
+            <div class="step-body">
+              <span class="step-title">Send config via BLE</span>
+              <span class="step-detail" id="step-detail-send"></span>
+            </div>
+          </div>
+          <div class="step" data-step="response">
+            <div class="step-indicator"><span class="step-icon"></span></div>
+            <div class="step-body">
+              <span class="step-title">Device response</span>
+              <span class="step-detail" id="step-detail-response"></span>
+            </div>
+          </div>
+          <div class="step" data-step="poll">
+            <div class="step-indicator"><span class="step-icon"></span></div>
+            <div class="step-body">
+              <span class="step-title">Polling bind status</span>
+              <span class="step-detail" id="step-detail-poll"></span>
+            </div>
+          </div>
+          <div class="step" data-step="done">
+            <div class="step-indicator"><span class="step-icon"></span></div>
+            <div class="step-body">
+              <span class="step-title">Bound</span>
+              <span class="step-detail" id="step-detail-done"></span>
+            </div>
+          </div>
+        </div>
+        <div class="progress-actions hidden" id="progress-actions">
+          <button class="btn primary" id="btn-to-control">
+            <span class="btn-text">Device Control</span>
+          </button>
+        </div>
+        <div class="progress-error hidden" id="progress-error">
+          <p id="progress-error-msg"></p>
+          <button class="btn secondary" id="btn-retry-provision">Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 5: DEVICE CONTROL -->
+    <section class="screen" id="screen-control">
+      <div class="screen-inner">
+        <div class="screen-badge">05</div>
+        <h2>Device Control</h2>
+        <p class="screen-desc">Read and write device properties via BLE.</p>
+        <div class="control-grid">
+          <div class="control-col">
+            <h3>Properties</h3>
+            <button class="btn secondary" id="btn-get-props">
+              <span class="btn-text">Get Properties</span>
+              <span class="btn-spinner"></span>
+            </button>
+            <pre class="code-block" id="props-output">No data yet. Click "Get Properties".</pre>
+            <h3>Set Property</h3>
+            <div class="prop-setter">
+              <input type="text" id="input-prop-key" placeholder="key" spellcheck="false">
+              <input type="text" id="input-prop-value" placeholder="value" spellcheck="false">
+              <button class="btn primary small" id="btn-set-prop">
+                <span class="btn-text">Set</span>
+                <span class="btn-spinner"></span>
+              </button>
+            </div>
+          </div>
+          <div class="control-col">
+            <h3>Notifications <span class="badge" id="notif-count">0</span></h3>
+            <div class="notif-log" id="notif-log">
+              <p class="notif-empty">Waiting for device reports...</p>
+            </div>
+          </div>
+        </div>
+        <div class="control-footer">
+          <button class="btn danger" id="btn-disconnect">Disconnect</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- INTERACTION SIDEBAR -->
+  <aside id="ix-panel">
+    <div class="ix-panel-tabs">
+      <button class="ix-tab active" data-tab="ix">Interaction</button>
+      <button class="ix-tab" data-tab="serial">Serial Log</button>
+    </div>
+
+    <!-- Tab: Interaction -->
+    <div class="ix-tab-body active" id="tab-ix">
+      <div class="ix-tab-toolbar">
+        <span class="toolbar-spacer"></span>
+        <button class="icon-btn small" id="btn-copy-ix" title="Copy All">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="3.5" y="3.5" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M8.5 3.5V2a1 1 0 00-1-1H2a1 1 0 00-1 1v5.5a1 1 0 001 1h1.5" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+        <button class="icon-btn small" id="btn-clear-ix" title="Clear">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 3h8M4.5 3V2h3v1M3 3v7a1 1 0 001 1h4a1 1 0 001-1V3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="ix-log" id="ix-global"></div>
+    </div>
+
+    <!-- Tab: Serial Log -->
+    <div class="ix-tab-body" id="tab-serial">
+      <div class="ix-tab-toolbar">
+        <div class="serial-controls">
+          <select id="serial-baud">
+            <option value="115200" selected>115200</option>
+            <option value="921600">921600</option>
+            <option value="460800">460800</option>
+            <option value="230400">230400</option>
+            <option value="9600">9600</option>
+          </select>
+          <label class="serial-check"><input type="checkbox" id="serial-autoscroll" checked> Auto-scroll</label>
+        </div>
+        <div class="serial-toolbar-right">
+          <button class="icon-btn small" id="btn-copy-serial" title="Copy All">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="3.5" y="3.5" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M8.5 3.5V2a1 1 0 00-1-1H2a1 1 0 00-1 1v5.5a1 1 0 001 1h1.5" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+          <button class="icon-btn small" id="btn-clear-serial" title="Clear">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 3h8M4.5 3V2h3v1M3 3v7a1 1 0 001 1h4a1 1 0 001-1V3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="serial-status" id="serial-status">Not connected</div>
+      <pre class="serial-output" id="serial-output"></pre>
+    </div>
+  </aside>
+
+  <!-- DEBUG PANEL -->
+  <div id="debug-panel" class="collapsed">
+    <div class="debug-header" id="debug-header-bar">
+      <span>Debug Log</span>
+      <div class="debug-actions">
+        <button class="icon-btn small" id="btn-clear-debug" title="Clear">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 3h8M4.5 3V2h3v1M3 3v7a1 1 0 001 1h4a1 1 0 001-1V3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="icon-btn small" id="btn-collapse-debug" title="Collapse">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="debug-content" id="debug-content"></div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

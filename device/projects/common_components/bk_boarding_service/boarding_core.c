@@ -25,7 +25,11 @@
 #endif
 #include "app_event.h"
 #include "bk_factory_config.h"
+#if CONFIG_SENTINO_IOT
+#include "sentino_mqtt.h"
+#else
 #include "agora_convoai_iot.h"
+#endif
 #include "pan_user_config.h"
 
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -209,6 +213,23 @@ static void bk_genie_message_handle(void)
                         bk_genie_boarding_info_t *bk_genie_boarding_info = bk_genie_get_boarding_info();
                         bk_genie_wifi_sta_connect(bk_genie_boarding_info->boarding_info.ssid_value, bk_genie_boarding_info->boarding_info.password_value);
 
+#if CONFIG_SENTINO_IOT
+                        /* Sentino: persist userId, assetId, mqttUrl from BLE provisioning.
+                         * BLE fields are repurposed: auth_token_first_half → userId,
+                         * auth_token_second_half → assetId, agora_convoai_server_url → mqttUrl */
+                        {
+                            sentino_provision_info_t prov = {0};
+                            if (bk_genie_boarding_info->boarding_info.auth_token_first_half)
+                                strncpy(prov.user_id, bk_genie_boarding_info->boarding_info.auth_token_first_half, sizeof(prov.user_id) - 1);
+                            if (bk_genie_boarding_info->boarding_info.auth_token_second_half)
+                                strncpy(prov.asset_id, bk_genie_boarding_info->boarding_info.auth_token_second_half, sizeof(prov.asset_id) - 1);
+                            if (bk_genie_boarding_info->boarding_info.agora_convoai_server_url)
+                                strncpy(prov.mqtt_broker, bk_genie_boarding_info->boarding_info.agora_convoai_server_url, sizeof(prov.mqtt_broker) - 1);
+                            prov.mqtt_port = 1883;
+                            LOGE("sentino userId=%s, assetId=%s, broker=%s\n", prov.user_id, prov.asset_id, prov.mqtt_broker);
+                            sentino_provision_info_write(&prov);
+                        }
+#else
                         char *auth_token = os_malloc(AGORA_CONVOAI_REQUEST_TOKEN_SIZE);
                         snprintf(auth_token, AGORA_CONVOAI_REQUEST_TOKEN_SIZE, "%s%s", bk_genie_boarding_info->boarding_info.auth_token_first_half, bk_genie_boarding_info->boarding_info.auth_token_second_half);
                         LOGE("device auth token=%s\n", auth_token);
@@ -220,6 +241,7 @@ static void bk_genie_message_handle(void)
                         LOGE("convoai url=%s\n", agora_convoai_server_url);
                         agora_convoai_server_url_write(agora_convoai_server_url);
                         os_free(agora_convoai_server_url);
+#endif
 
                         bk_event_unregister_cb(EVENT_MOD_WIFI, EVENT_WIFI_SCAN_DONE, bk_genie_wlan_scan_done_handler);
 			} else {
@@ -238,10 +260,17 @@ static void bk_genie_message_handle(void)
                 case DBEVT_AGORA_DEVICE_ID_REQUEST:
                 {
                     LOGI("DBEVT_AGORA_DEVICE_ID_REQUEST\n");
+#if CONFIG_SENTINO_IOT
+                    /* Sentino uses UUID from three-tuple, return mock UUID for now */
+                    const char *dev_uuid = SENTINO_MOCK_UUID;
+                    LOGI("device uuid=%s\n", dev_uuid);
+                    bk_genie_boarding_event_notify_with_data(BOARDING_OP_GET_DEVICE_ID, BK_OK, (char *)dev_uuid, strlen(dev_uuid));
+#else
                     char device_id[AGORA_CONVOAI_DEVICE_ID_SIZE];
                     agora_convoai_get_device_id(device_id);
                     LOGI("device id=%s\n", device_id);
                     bk_genie_boarding_event_notify_with_data(BOARDING_OP_GET_DEVICE_ID, BK_OK, device_id, strlen(device_id));
+#endif
                 }
                 break;
 
@@ -290,6 +319,19 @@ static void bk_genie_message_handle(void)
                     int status = 1;
 
                     bk_genie_boarding_info_t *bk_genie_boarding_info = bk_genie_get_boarding_info();
+#if CONFIG_SENTINO_IOT
+                    {
+                        sentino_provision_info_t prov = {0};
+                        if (bk_genie_boarding_info->boarding_info.auth_token_first_half)
+                            strncpy(prov.user_id, bk_genie_boarding_info->boarding_info.auth_token_first_half, sizeof(prov.user_id) - 1);
+                        if (bk_genie_boarding_info->boarding_info.auth_token_second_half)
+                            strncpy(prov.asset_id, bk_genie_boarding_info->boarding_info.auth_token_second_half, sizeof(prov.asset_id) - 1);
+                        if (bk_genie_boarding_info->boarding_info.agora_convoai_server_url)
+                            strncpy(prov.mqtt_broker, bk_genie_boarding_info->boarding_info.agora_convoai_server_url, sizeof(prov.mqtt_broker) - 1);
+                        prov.mqtt_port = 1883;
+                        sentino_provision_info_write(&prov);
+                    }
+#else
                     char *auth_token = os_malloc(AGORA_CONVOAI_REQUEST_TOKEN_SIZE);
                     snprintf(auth_token, AGORA_CONVOAI_REQUEST_TOKEN_SIZE, "%s%s", bk_genie_boarding_info->boarding_info.auth_token_first_half, bk_genie_boarding_info->boarding_info.auth_token_second_half);
                     LOGE("device auth token=%s\n", auth_token);
@@ -301,6 +343,7 @@ static void bk_genie_message_handle(void)
                     LOGE("convoai url=%s\n", agora_convoai_server_url);
                     agora_convoai_server_url_write(agora_convoai_server_url);
                     os_free(agora_convoai_server_url);
+#endif
 #if CONFIG_NET_PAN
                     bk_bt_enter_pairing_mode(1);
                     status = 0;

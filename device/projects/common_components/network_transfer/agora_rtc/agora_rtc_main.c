@@ -61,9 +61,11 @@ bool agora_runing = false;
 static agora_rtc_config_t agora_rtc_config = DEFAULT_AGORA_RTC_CONFIG();
 static agora_rtc_option_t agora_rtc_option = DEFAULT_AGORA_RTC_OPTION();
 char agora_channel_name[AGORA_CONVOAI_CHANNEL_NAME_SIZE] = {0};
+#if !CONFIG_SENTINO_IOT
 static agora_convoai_configs_resp_t *convoai_configs = NULL;
 static agora_convoai_start_resp_t *convoai_start_resp = NULL;
 static beken2_timer_t agora_convoai_start_countdown_ms_timer = { 0 };
+#endif
 
 static uint32_t g_target_bps = BANDWIDTH_ESTIMATE_MIN_BITRATE;
 extern bool smart_config_running;
@@ -272,7 +274,10 @@ void agora_main(void *args)
     agora_rtc_option.audio_config.pcm_channel_num = CONFIG_PCM_CHANNEL_NUM;
 #endif
     agora_rtc_option.p_token = ((configs->rtc_token[0] == '\0' || (0 == strcmp(configs->app_id, configs->rtc_token))) ? NULL : configs->rtc_token);
+#if !CONFIG_SENTINO_IOT
     agora_rtc_option.uid = AGORA_CONVOAI_LOCAL_UID;
+#endif
+    /* For Sentino, uid is set by sentino_convoai_engine_start() before calling agora_start() */
     LOGI("appid=%s, token=%s\n", agora_rtc_config.p_appid, NULL == agora_rtc_option.p_token ? "NULL" : agora_rtc_option.p_token);
 
     ret = bk_agora_rtc_start(&agora_rtc_option);
@@ -593,10 +598,126 @@ fail:
 }
 /* call this api when wifi autoconnect */
 
+#if CONFIG_SENTINO_IOT
+#include "sentino_mqtt.h"
+
+static sentino_rtc_params_t s_sentino_rtc_params;
+static agora_convoai_configs_resp_t s_sentino_configs;
+static bool s_sentino_started = false;
+
+static void sentino_issue_handler(const char *code, const char *payload_json)
+{
+    LOGI("sentino issue: code=%s\n", code);
+    if (0 == strcmp(code, "reset")) {
+        LOGI("cloud requested reset\n");
+        // TODO: trigger device reset
+    } else if (0 == strcmp(code, "ping")) {
+        LOGI("cloud ping\n");
+    } else if (0 == strcmp(code, "ota")) {
+        LOGI("cloud OTA command\n");
+        // TODO: parse OTA URL and trigger download
+    } else if (0 == strcmp(code, "property_set")) {
+        LOGI("cloud property_set: %s\n", payload_json);
+    }
+}
+
+void sentino_convoai_engine_init(void)
+{
+    sentino_provision_info_t prov_info = {0};
+    sentino_provision_info_read(&prov_info);
+
+    if (prov_info.mqtt_broker[0] == '\0') {
+        LOGE("sentino provision info not found. need BLE provisioning first.\n");
+        return;
+    }
+
+    /* Use mock three-tuple for development */
+    const char *uuid = SENTINO_MOCK_UUID;
+    const char *key = SENTINO_MOCK_KEY;
+    const char *pid = prov_info.pid[0] ? prov_info.pid : "bJ2aBSg2tMmTNa";
+
+    LOGI("sentino init: broker=%s, port=%u, uuid=%s\n",
+         prov_info.mqtt_broker, prov_info.mqtt_port, uuid);
+
+    sentino_mqtt_init(prov_info.mqtt_broker, prov_info.mqtt_port, uuid, key, pid);
+
+    if (0 != sentino_mqtt_connect()) {
+        LOGE("sentino MQTT connect failed\n");
+        return;
+    }
+
+    sentino_mqtt_register_issue_handler(sentino_issue_handler);
+
+    /* Publish bind */
+    sentino_mqtt_publish_bind(prov_info.user_id, prov_info.asset_id, AGORA_CONVOAI_APP_VERSION);
+
+    /* Publish info */
+    sentino_mqtt_publish_info(AGORA_CONVOAI_APP_VERSION, true);
+
+    LOGI("sentino engine initialized\n");
+}
+
+void sentino_convoai_engine_start(void)
+{
+    if (s_sentino_started) {
+        LOGI("sentino already started\n");
+        return;
+    }
+
+    if (!sentino_mqtt_is_connected()) {
+        LOGE("sentino MQTT not connected, cannot start\n");
+        return;
+    }
+
+    /* Request RTC parameters via MQTT */
+    memset(&s_sentino_rtc_params, 0, sizeof(s_sentino_rtc_params));
+    if (0 != sentino_mqtt_request_rtc_access(&s_sentino_rtc_params)) {
+        LOGE("sentino RTC access request failed\n");
+        app_event_send_msg(APP_EVT_AGENT_START_FAIL, 0);
+        return;
+    }
+
+    /* Populate configs for agora_start() */
+    memset(&s_sentino_configs, 0, sizeof(s_sentino_configs));
+    snprintf(s_sentino_configs.app_id, sizeof(s_sentino_configs.app_id),
+             "%s", s_sentino_rtc_params.app_id);
+    snprintf(s_sentino_configs.rtc_token, sizeof(s_sentino_configs.rtc_token),
+             "%s", s_sentino_rtc_params.rtc_token);
+    s_sentino_configs.token_enable =
+        (s_sentino_configs.rtc_token[0] != '\0' &&
+         0 != strcmp(s_sentino_configs.app_id, s_sentino_configs.rtc_token));
+
+    /* Use channel name from cloud response */
+    snprintf(agora_channel_name, sizeof(agora_channel_name),
+             "%s", s_sentino_rtc_params.channel_name);
+
+    /* Override local UID with the one from cloud (token is bound to this uid) */
+    agora_rtc_option.uid = s_sentino_rtc_params.uid;
+
+    LOGI("sentino starting RTC: appid=%s, channel=%s, uid=%u\n",
+         s_sentino_configs.app_id, agora_channel_name, s_sentino_rtc_params.uid);
+
+    /* Start Agora RTC (reuse existing function) */
+    agora_start(&s_sentino_configs);
+
+    s_sentino_started = true;
+}
+
+void sentino_convoai_engine_stop(void)
+{
+    /* Leave RTC channel — cloud auto-cleans the AI Agent */
+    agora_stop();
+    s_sentino_started = false;
+    LOGI("sentino engine stopped\n");
+}
+
+#endif /* CONFIG_SENTINO_IOT */
+
+#if !CONFIG_SENTINO_IOT
+
 static void __timer_expire_handler()
 {
     LOGI("convoai timer exipre. donot stop agent now\n");
-    //app_event_send_msg(APP_EVT_CONVOAI_START_TIMER_EXPIRE, 0);
 }
 
 static void __convoai_timer_start_or_relaunch()
@@ -613,13 +734,13 @@ static void __convoai_timer_start_or_relaunch()
     if (kNoErr != result) {
         LOGE("convoai timer create failed.\n");
         return;
-        }
+    }
 
     result = rtos_start_oneshot_timer(&agora_convoai_start_countdown_ms_timer);
     if (kNoErr != result) {
         LOGE("convoai timer start failed.\n");
         return;
-        }
+    }
 
     LOGI("convoai timer start running.\n");
 }
@@ -728,6 +849,7 @@ void agora_convoai_engine_stop()
         }
         }
 }
+#endif /* !CONFIG_SENTINO_IOT */
 
 #if 0
 static void agora_test_start()

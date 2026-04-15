@@ -1,4 +1,9 @@
 menu "net_transfer"
+	config SENTINO_IOT
+		bool "Enable Sentino IoT Platform (MQTT signaling)"
+		depends on AGORA_IOT_SDK
+		default n
+
 	config BK_WSS_TRANS
 		bool "Enable Beken Websocket Transmit for AI"
 		default n

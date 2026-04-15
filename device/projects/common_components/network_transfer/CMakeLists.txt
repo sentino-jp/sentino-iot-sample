@@ -18,8 +18,14 @@ list(APPEND srcs
 	agora_rtc/agora_debug.c
 	agora_rtc/agora_rtc_main.c
 	agora_rtc/agora_rtc.c
-    agora_rtc/agora_convoai_iot.c
 )
+
+if (CONFIG_SENTINO_IOT)
+    list(APPEND srcs agora_rtc/sentino_mqtt.c)
+else()
+    list(APPEND srcs agora_rtc/agora_convoai_iot.c)
+endif()
+
 endif()
 
 if (CONFIG_BK_WSS_TRANS)
@@ -64,6 +70,7 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
-    PRIV_REQUIRES bk_common bk_boarding_service bk_smart_config bk_init lwip_intf_v2_1 mbedtls psa_mbedtls json multimedia avdk_utils 
+    PRIV_REQUIRES bk_common bk_boarding_service bk_smart_config bk_init lwip_intf_v2_1 mbedtls psa_mbedtls json multimedia avdk_utils
                   VolcEngineRTCLite agora-iot-sdk video_engine audio_engine bk_app_event bk_factory_config LingXin_AI_IoT_VoiceChatEngine
+                  ali_mqtt
 )

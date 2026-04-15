@@ -8,9 +8,15 @@ list(APPEND srcs
 )
 
 if (CONFIG_AGORA_IOT_SDK)
+if (CONFIG_SENTINO_IOT)
+list(APPEND srcs
+	src/adapter/sentino/bk_smart_config_sentino_adapter.c
+)
+else()
 list(APPEND srcs
 	src/adapter/agora/bk_smart_config_agora_adapter.c
 )
+endif()
 endif()
 
 if (CONFIG_BK_WSS_TRANS)

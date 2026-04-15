@@ -5,7 +5,7 @@
 
 #define AGORA_CONVOAI_APP_VERSION           "1.0.3"
 
-#define CONFIG_AGENT_SERVER_URL             "http://10.91.0.63:5001"
+#define CONFIG_AGENT_SERVER_URL             "http://170.9.21.118:8083"
 
 #define AGORA_CONVOAI_LOCAL_UID             1
 #define AGORA_CONVOAI_AGENT_UID             11
