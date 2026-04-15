@@ -315,10 +315,10 @@ function resetSteps() {
 async function runProvisioning(ssid, wifiPassword) {
   resetSteps();
 
-  // UUID from user input (barcode), fallback to BLE adv or device info
-  const deviceUuid = $('#input-device-uuid').value.trim()
-    || ble.getDeviceUuid()
-    || state.deviceInfo?.uuid
+  // WiFi device: UUID from BLE advertisement manufacturer data (ID Type=0)
+  // Fallback to manual input (for 4G devices, UUID comes from QR code scan)
+  const deviceUuid = ble.getDeviceUuid()
+    || $('#input-device-uuid').value.trim()
     || '';
 
   debugLog(`Device UUID for bind polling: ${deviceUuid || '(none)'}`, 'ble');
@@ -366,8 +366,11 @@ async function runProvisioning(ssid, wifiPassword) {
     // Step 2: Send via BLE
     setStepState('send', 'active');
     debugLog('Sending thing.network.set via BLE (plaintext)...', 'ble');
+    const ts = Date.now();
     const bleMsg = {
       type: 'thing.network.set',
+      msgId: `${ts}001`,
+      ts,
       data: provisionContent,
     };
     debugLog(`Payload: ${JSON.stringify(bleMsg)}`, 'ble');

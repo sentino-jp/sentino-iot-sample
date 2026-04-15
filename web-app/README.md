@@ -62,7 +62,13 @@ web-app/
 | V1 分包协议 (128B/包, 118B 有效) | `packet.js` 编解码 | 消息传输 |
 | `device.information.get` 响应 | Screen 02 展示设备信息 | PID/版本/MAC |
 | `thing.network.set` 接收 | Screen 04 发送配网数据 | SSID/密码/userId/assetId/mqttUrl |
-| 设备 UUID (条码) | Screen 03 手动输入 | `checkBindResult` 轮询用 |
+| 设备 UUID | Screen 03 手动输入 | `checkBindResult` 轮询用 |
+
+### Web Bluetooth API 限制
+
+WiFi 设备的 UUID 广播在 BLE 扫描应答包的厂商数据中（ID Type=0）。原生 iOS/Android App 在扫描阶段即可获取，但 **Web Bluetooth API 无法在 GATT 连接后可靠获取扫描应答数据**（`watchAdvertisements()` 依赖设备连接后继续广播，而 BLE 设备连接后通常停止广播）。
+
+因此本工具需要在 Screen 03 手动输入 UUID，或使用 `scan_uuid.py` 预先扫描获取。
 
 ## API 代理
 

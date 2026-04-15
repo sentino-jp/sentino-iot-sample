@@ -1499,6 +1499,9 @@ int wifi_boarding_adv_start(void)
             uint8_t ble_mac[6] = {0};
             bk_get_mac(ble_mac, MAC_TYPE_BLUETOOTH);
 
+            const char *dev_uuid = SENTINO_MOCK_UUID;
+            uint8_t uuid_len = strlen(dev_uuid);
+
             sr_len_index = sr_index;
             scan_rsp[sr_index++] = 0x00;
             scan_rsp[sr_index++] = BK_BLE_AD_TYPE_MANU;
@@ -1509,9 +1512,9 @@ int wifi_boarding_adv_start(void)
             scan_rsp[sr_index++] = 0x02; /* Encrypt Method: plaintext */
             scan_rsp[sr_index++] = 0x00; /* Comm Ability high */
             scan_rsp[sr_index++] = 0x05; /* Comm Ability low: bit0=BLE bind, bit2=WiFi 2.4G */
-            scan_rsp[sr_index++] = 0x01; /* ID Type: MAC */
-            memcpy(&scan_rsp[sr_index], ble_mac, 6);
-            sr_index += 6;
+            scan_rsp[sr_index++] = 0x00; /* ID Type: UUID (WiFi device default) */
+            memcpy(&scan_rsp[sr_index], dev_uuid, uuid_len);
+            sr_index += uuid_len;
             scan_rsp[sr_len_index] = sr_index - sr_len_index - 1;
         }
 

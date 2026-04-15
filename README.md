@@ -40,7 +40,11 @@ BLE 配网 Web App ──BLE V1──▶ BK7258 设备 ──MQTT──▶ Senti
 
 本项目的实时音频通道由声网提供。声网媒体流加速 (RTSA) 依托 Agora SD-RTN™ (Software Defined Real-time Network)，为 Linux/RTOS 设备提供音视频码流在互联网实时传输的能力，具有极小的包体积和内存占用，适合 BK7258 等资源受限的 IoT 设备。
 
-更多信息请参考 [声网 ConvoAI 文档](https://doc.shengwang.cn/doc/convoai/restful/get-started/enable-service)。
+使用 Sentino IoT 平台接入时，Agora ConvoAI 服务由 Sentino 统一提供，开发者无需单独向声网申请开通。
+
+## 致谢
+
+本项目基于 [Shengwang-Community/Conversational-AI-IOT-Sample](https://github.com/Shengwang-Community/Conversational-AI-IOT-Sample) 修改而来，感谢声网社区提供的原始示例工程。
 
 ## 技术支持
 
