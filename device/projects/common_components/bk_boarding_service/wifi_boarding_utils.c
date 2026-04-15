@@ -1329,7 +1329,7 @@ int wifi_boarding_adv_start(void)
     current_addr[5] |= 0xc0;
     current_addr[0]++;
 
-    snprintf((char *)(adv_name), sizeof(adv_name) - 1, "R1-%02X%02X%02X", current_addr[2], current_addr[1], current_addr[0]);
+    snprintf((char *)(adv_name), sizeof(adv_name) - 1, "RY");
 
     wboard_logi("adv name %s", adv_name);
 
@@ -1493,6 +1493,15 @@ int wifi_boarding_adv_start(void)
     {
         uint8_t scan_rsp[251] = {0};
         uint32_t sr_index = 0, sr_len_index = 0;
+
+        /* Complete Local Name (AD type 0x09) */
+        sr_len_index = sr_index;
+        scan_rsp[sr_index++] = 0x00;
+        scan_rsp[sr_index++] = 0x09; /* Complete Local Name */
+        uint8_t name_len = strlen((char *)adv_name);
+        memcpy(&scan_rsp[sr_index], adv_name, name_len);
+        sr_index += name_len;
+        scan_rsp[sr_len_index] = name_len + 1;
 
         /* Manufacturer Data (ref-ble.md §2.2): Company ID(2B) + fields(6B) + MAC(6B) */
         {
