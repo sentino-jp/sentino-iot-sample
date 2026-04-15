@@ -1,10 +1,10 @@
-# 声网 BK7258 Demo工程
+# Sentino IoT + BK7258 Demo 工程
 
 *简体中文| [English](README.en.md)*
 
 ## 例程简介
 
-本例程演示了如何通过 BK7358 AI Robotic Kid 开发板，集成声网RTSA Lite SDK，实现音视频通话功能演示。
+本例程演示了如何通过 BK7258 AI Robotic Kid 开发板，集成 Sentino IoT 平台（MQTT 信令）和声网 RTSA Lite SDK（音频通道），实现设备配网和 AI 语音对话功能。
 
 ### 文件结构
 ```
@@ -695,16 +695,16 @@ $ make bk7258 PROJECT=beken_genie
 2. 该接口同时用于电池充电。
 3. 请注意`RST`按键位置，当烧录工具无法自动重启开发板时，可以手动重启恢复烧录能力。
 
-### 开始注册自己的声网账号
+### 前置准备
 
-接下来我们带您创建属于您自己的声网账号。
-参考文档：https://doc.shengwang.cn/doc/convoai/restful/get-started/enable-service
+1. 在 Sentino IoT 平台完成产品创建和设备注册，获取设备三元组（UUID / KEY / PID）。
+2. 注册声网账号并开通 ConvoAI 服务，参考：https://doc.shengwang.cn/doc/convoai/restful/get-started/enable-service
 
-#### Demo运行
+#### Demo 运行
 
 1. 开发板插入电池或数据线后会自动启动。
-2. 如果还未给开发板设置wifi账号及密码，请先长按`S1`5秒键进入配网模式。
-3. 使用配套的APP（本示例只提供Android工程，请自行构建并安装APK）
-4. 配网成功后，你可以短按`S2`唤醒设备，启动和AI Agent的通话。
-5. 对话完毕后，你可以再次短按`S2`退出和AI Agent的通话。
-6. 开发板在静默状态3分钟后自动进入深度休眠状态，你可以通过`RST`键重启运行。
+2. 如果还未给开发板设置 WiFi 账号及密码，请先长按 `S1` 5 秒进入配网模式。
+3. 使用配套的 [BLE 配网 Web 工具](../web-app/README.md)（Chrome 浏览器打开 `http://localhost:3000`）完成配网。
+4. 配网成功后，短按 `S2` 唤醒设备，启动和 AI Agent 的通话。
+5. 对话完毕后，再次短按 `S2` 退出和 AI Agent 的通话。
+6. 开发板在静默状态 3 分钟后自动进入深度休眠状态，可通过 `RST` 键重启。

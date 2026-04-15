@@ -5,7 +5,7 @@
 ## 启动
 
 ```bash
-cd iot-web-app
+cd web-app
 node server.js
 # 打开 Chrome 访问 http://localhost:3000
 ```
@@ -15,7 +15,7 @@ node server.js
 ## 项目结构
 
 ```
-iot-web-app/
+web-app/
 ├── server.js          # HTTP 服务 + API 代理 (localhost:3000 → api-iot.sentino.jp)
 ├── index.html         # 五屏 UI
 ├── style.css          # 样式

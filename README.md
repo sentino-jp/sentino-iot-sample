@@ -1,15 +1,46 @@
-# 使用说明
+# Sentino IoT + BK7258 Conversational AI 示例项目
 
-1. 该示例项目包含 app 端、BK7258 device 端，以及配套 server 端组成，旨在展示如何在BK7258芯片平台上集成RTSA Lite SDK，并与ConversationalAI建立连接实现与AI Agent实时对话。
-2. 使用时请分别参考三个端侧对应开源工程，分别部署 server，安装 APK 后，再与 BK7258 device 端进行联调。
-3. 各端开源工程集成方法分别见各自目录下 README.md 文件说明：
-   - [APP: app/iot_dn_android/README.md](app/iot_dn_android/README.md)
-   - [Server: server/aiot_server_demo_example/README.md](server/aiot_server_demo_example/README.md)
-   - [BK7258: device/README.md](device/README.md)
+本项目展示如何基于 Sentino IoT 平台，在 BK7258 芯片上实现设备配网、云端信令和 AI 语音对话的完整链路。
 
-## 关于声网
+## 架构概览
 
-声网媒体流加速（原实时码流加速，Real-Time Streaming Acceleration，RTSA）提供优质的音视频流传输，帮助开发者通过第三方或自研编解码模块为智能硬件实现人与人、人与物、物与物的实时互动连接。依托声网自建的底层实时传输网络 Agora SD-RTN™ (Software Defined Real-time Network)，为所有支持网络功能的 Linux/RTOS 设备提供音视频码流在互联网实时传输的能力。该方案充分利用了声网全球全网节点和智能动态路由算法，与此同时支持了前向纠错、智能重传、带宽预测、码流平滑等多种组合抗弱网的策略，可以在设备所处的各种不确定网络环境下，仍然交付高连通、高实时和高稳定的最佳音视频网络体验。此外，该方案具有极小的包体积和内存占用，适合运行在任何资源受限的 IoT 设备上，包括 ESP32S3、BK7258 等SOC产品。
+```
+BLE 配网 Web App ──BLE V1──▶ BK7258 设备 ──MQTT──▶ Sentino IoT 云端
+                                  │                        │
+                                  │◀── Agora RTC 参数 ─────┘
+                                  │
+                                  ▼
+                          Agora SD-RTN™ (音频通道)
+                                  │
+                                  ▼
+                            AI Agent (ConversationalAI)
+```
+
+- **设备端 (BK7258)**：集成声网 RTSA Lite SDK，通过 MQTT 与 Sentino IoT 平台通信获取 RTC 参数，建立 Agora 音频通道与 AI Agent 实时对话。
+- **配网工具 (web-app)**：基于 Web Bluetooth API 的浏览器端工具，通过 BLE V1 协议完成 WiFi 配网和设备绑定。
+
+## 目录结构
+
+| 目录 | 说明 | 文档 |
+|------|------|------|
+| `device/` | BK7258 固件工程（含多种方案） | [device/README.md](device/README.md)、[device/BUILD_GUIDE.md](device/BUILD_GUIDE.md) |
+| `web-app/` | BLE 配网 Web 应用 | [web-app/README.md](web-app/README.md) |
+
+## 快速开始
+
+1. 参照 [device/BUILD_GUIDE.md](device/BUILD_GUIDE.md) 编译并烧录 BK7258 固件（Sentino IoT 模式）。
+2. 启动配网工具：
+   ```bash
+   cd web-app && node server.js
+   ```
+   在 Chrome 中打开 `http://localhost:3000`，完成 BLE 配网。
+3. 配网成功后，短按开发板 `S2` 键启动与 AI Agent 的语音对话。
+
+## 关于声网 (Agora)
+
+本项目的实时音频通道由声网提供。声网媒体流加速 (RTSA) 依托 Agora SD-RTN™ (Software Defined Real-time Network)，为 Linux/RTOS 设备提供音视频码流在互联网实时传输的能力，具有极小的包体积和内存占用，适合 BK7258 等资源受限的 IoT 设备。
+
+更多信息请参考 [声网 ConvoAI 文档](https://doc.shengwang.cn/doc/convoai/restful/get-started/enable-service)。
 
 ## 技术支持
 
