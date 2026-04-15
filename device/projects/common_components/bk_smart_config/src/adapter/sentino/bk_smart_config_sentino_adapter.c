@@ -22,7 +22,11 @@ int bk_sconf_post_nfc_id(uint8_t *nfc_id)
 void bk_sconf_trans_stop(void)
 {
     sentino_convoai_engine_stop();
-    sentino_mqtt_disconnect();
+    /* Don't call sentino_mqtt_disconnect() here — IOT_MQTT_Destroy() has an
+     * internal recv-thread teardown bug that asserts on queue send.
+     * WiFi is stopped right after this call (bk_wifi_sta_stop), which kills
+     * the TCP connection and lets the MQTT recv thread exit naturally.
+     * MQTT will be re-initialized fresh on next WiFi connect. */
 }
 
 void agora_ir_mode_config(bool enable)

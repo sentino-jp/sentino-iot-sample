@@ -697,8 +697,7 @@ $ make bk7258 PROJECT=beken_genie
 
 ### 前置准备
 
-1. 在 Sentino IoT 平台完成产品创建和设备注册，获取设备三元组（UUID / KEY / PID）。
-2. 注册声网账号并开通 ConvoAI 服务，参考：https://doc.shengwang.cn/doc/convoai/restful/get-started/enable-service
+在 Sentino IoT 平台完成产品创建和设备注册，获取设备三元组（UUID / KEY / PID）。
 
 #### Demo 运行
 

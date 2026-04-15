@@ -291,6 +291,7 @@ static int publish_json(const char *topic, cJSON *root)
 
 static beken_thread_t s_yield_thread = NULL;
 static bool s_yield_running = false;
+static beken_semaphore_t s_yield_exit_sem = NULL;
 
 static void mqtt_yield_task(void *arg)
 {
@@ -300,6 +301,9 @@ static void mqtt_yield_task(void *arg)
     }
 
     s_yield_thread = NULL;
+    if (s_yield_exit_sem) {
+        rtos_set_semaphore(&s_yield_exit_sem);
+    }
     rtos_delete_thread(NULL);
 }
 
@@ -313,7 +317,13 @@ int sentino_mqtt_init(const char *broker_url, uint16_t port,
 {
     if (s_mqtt.initialized) {
         LOGI("already initialized, re-init");
-        sentino_mqtt_disconnect();
+        /* Stop yield thread if still running, but don't call IOT_MQTT_Destroy */
+        s_yield_running = false;
+        if (s_yield_thread && s_yield_exit_sem) {
+            rtos_get_semaphore(&s_yield_exit_sem, 2000);
+        }
+        s_mqtt.handle = NULL;
+        s_mqtt.connected = false;
     }
 
     memset(&s_mqtt, 0, sizeof(s_mqtt));
@@ -432,6 +442,8 @@ int sentino_mqtt_connect(void)
 
     /* Start yield task */
     s_yield_running = true;
+    if (s_yield_exit_sem) { rtos_deinit_semaphore(&s_yield_exit_sem); s_yield_exit_sem = NULL; }
+    rtos_init_semaphore(&s_yield_exit_sem, 1);
     bk_err_t err = rtos_create_thread(&s_yield_thread, 4, "mqtt_yield",
                                        (beken_thread_function_t)mqtt_yield_task,
                                        4 * 1024, NULL);
@@ -449,23 +461,29 @@ fail:
 
 int sentino_mqtt_disconnect(void)
 {
-    /* Stop yield task */
+    /* Stop yield task and wait for it to exit */
     s_yield_running = false;
     if (s_yield_thread) {
-        rtos_delay_milliseconds(500); /* wait for yield task to exit */
+        if (!s_yield_exit_sem) {
+            rtos_init_semaphore(&s_yield_exit_sem, 1);
+        }
+        rtos_get_semaphore(&s_yield_exit_sem, 2000);
+        if (s_yield_exit_sem) {
+            rtos_deinit_semaphore(&s_yield_exit_sem);
+            s_yield_exit_sem = NULL;
+        }
     }
 
-    if (s_mqtt.handle) {
-        IOT_MQTT_Unsubscribe(s_mqtt.handle, s_mqtt.topic_report_response);
-        IOT_MQTT_Unsubscribe(s_mqtt.handle, s_mqtt.topic_issue);
-        IOT_MQTT_Destroy(&s_mqtt.handle);
-        s_mqtt.handle = NULL;
-    }
-
-    if (s_mqtt.write_buf) { psram_free(s_mqtt.write_buf); s_mqtt.write_buf = NULL; }
-    if (s_mqtt.read_buf)  { psram_free(s_mqtt.read_buf);  s_mqtt.read_buf = NULL; }
-
+    /* Do NOT call IOT_MQTT_Destroy() here — its internal recv thread teardown
+     * triggers xQueueGenericSend assert when entering provisioning mode.
+     * Just null out the handle; the TCP connection dies when WiFi goes down.
+     * sentino_mqtt_init() will re-init cleanly on reconnect. */
+    s_mqtt.handle = NULL;
     s_mqtt.connected = false;
+
+    /* Don't free buffers — they may still be referenced by the MQTT library's
+     * recv thread during async teardown. They will be re-allocated on next init. */
+
     LOGI("MQTT disconnected");
     return 0;
 }

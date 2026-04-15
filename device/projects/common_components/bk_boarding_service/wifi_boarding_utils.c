@@ -1101,6 +1101,15 @@ static void dm_ble_gap_common_cb(bk_ble_gap_cb_event_t event, bk_ble_gap_cb_para
     }
     break;
 
+    case BK_BLE_GAP_EXT_SCAN_RSP_DATA_RAW_SET_COMPLETE_EVT:
+    {
+        if (s_ble_sema != NULL)
+        {
+            rtos_set_semaphore(&s_ble_sema);
+        }
+    }
+    break;
+
     case BK_BLE_GAP_EXT_ADV_START_COMPLETE_EVT:
     {
         struct ble_adv_start_cmpl_evt_param *pm = (typeof(pm))param;
