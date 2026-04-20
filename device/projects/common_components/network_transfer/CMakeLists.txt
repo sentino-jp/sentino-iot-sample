@@ -20,12 +20,8 @@ list(APPEND srcs
 	agora_rtc/agora_rtc.c
 )
 
-if (CONFIG_SENTINO_IOT)
-    list(APPEND srcs agora_rtc/sentino_mqtt.c)
-    list(APPEND srcs agora_rtc/sentino_dev_info.c)
-else()
-    list(APPEND srcs agora_rtc/agora_convoai_iot.c)
-endif()
+list(APPEND srcs agora_rtc/sentino_mqtt.c)
+list(APPEND srcs agora_rtc/sentino_dev_info.c)
 
 endif()
 

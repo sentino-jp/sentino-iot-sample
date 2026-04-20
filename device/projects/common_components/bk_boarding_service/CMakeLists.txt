@@ -7,12 +7,8 @@ list(APPEND srcs
     boarding_core.c
     boarding_service.c
     wifi_boarding_utils.c
-)
-if (CONFIG_SENTINO_IOT)
-list(APPEND srcs
     sentino_ble_v1.c
 )
-endif()
 endif()
 endif()
 

@@ -123,16 +123,9 @@ extern void lvgl_app_play(char *avi_name);
 extern bk_err_t agora_stop(void);
 static app_evt_info_t app_evt_info;
 
-#if CONFIG_SENTINO_IOT
 extern void sentino_convoai_engine_init(void);
 extern void sentino_convoai_engine_start(void);
 extern void sentino_convoai_engine_stop(void);
-#else
-extern void agora_convoai_ota_check();
-extern void agora_convoai_engine_load_config();
-extern void agora_convoai_engine_start();
-extern void agora_convoai_engine_stop();
-#endif
 
 bk_err_t app_event_send_msg(uint32_t event, uint32_t param)
 {
@@ -505,28 +498,17 @@ static void app_event_thread(beken_thread_arg_t data)
                     break;
                 case APP_EVT_CONVOAI_OTA_CHECK:
                     LOGI("APP_EVT_CONVOAI_OTA_CHECK\n");
-#if !CONFIG_SENTINO_IOT
-                    agora_convoai_ota_check();
-#endif
                     break;
                 case APP_EVT_CONVOAI_CONFIG_LOADING:
                     LOGI("APP_EVT_CONVOAI_CONFIG_LOADING\n");
-#if CONFIG_SENTINO_IOT
                     sentino_convoai_engine_init();
-#else
-                    agora_convoai_engine_load_config();
-#endif
                     break;
                 case APP_EVT_CONVOAI_START_TIMER_EXPIRE:
                     LOGI("APP_EVT_CONVOAI_START_TIMER_EXPIRE\n");
                     break;
                 case APP_EVT_CONVOAI_EXIT:
                     LOGI("APP_EVT_CONVOAI_EXIT\n");
-#if CONFIG_SENTINO_IOT
                     sentino_convoai_engine_stop();
-#else
-                    agora_convoai_engine_stop();
-#endif
                     break;
                 case APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE:
                     LOGI("APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE. ir_mode=%d\n", image_recognition_mode_enable);
@@ -558,11 +540,7 @@ static void app_event_thread(beken_thread_arg_t data)
                     bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_480M);
                     bk_wifi_sta_pm_disable();
                     bk_wifi_set_wifi_media_mode(true);
-#if CONFIG_SENTINO_IOT
                     sentino_convoai_engine_start();
-#else
-                    agora_convoai_engine_start();
-#endif
 #if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
                     lvgl_app_init();
 #endif
@@ -589,11 +567,7 @@ static void app_event_thread(beken_thread_arg_t data)
 #if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
                     lvgl_app_deinit();
 #endif
-#if CONFIG_SENTINO_IOT
                     sentino_convoai_engine_stop();
-#else
-                    agora_convoai_engine_stop();
-#endif
                     bk_wifi_set_wifi_media_mode(false);
                     bk_wifi_sta_pm_enable();
                     bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_240M);

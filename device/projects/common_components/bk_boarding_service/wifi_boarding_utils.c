@@ -17,14 +17,10 @@
 #include "components/bluetooth/bk_dm_gatt_types.h"
 #include "components/bluetooth/bk_dm_gatts.h"
 #include "components/bk_uid.h"
-#if CONFIG_SENTINO_IOT
 #include "sentino_mqtt.h"
 #include "sentino_dev_info.h"
 #include "sentino_ble_v1.h"
 #include "cJSON.h"
-#else
-#include "agora_convoai_iot.h"
-#endif
 
 #include "wifi_boarding_internal.h"
 #include "wifi_boarding_utils.h"
@@ -38,7 +34,6 @@ extern bool enable_ble_split_pkt;
 #define SYNC_CMD_TIMEOUT_MS 4000
 #define ADV_HANDLE 0
 
-#if CONFIG_SENTINO_IOT
 /* Sentino Rlink BLE V1: GATT service 0x1910 with 0x2B11 (write) and 0x2B10 (notify) */
 static v1_assembler_t s_v1_assembler = {0};
 static uint16_t s_sentino_conn_ind = ~0;
@@ -46,7 +41,6 @@ static uint16_t s_sentino_conn_ind = ~0;
 static void sentino_v1_send_response(const char *json_str);
 static void sentino_v1_send_status_code(int code);
 static void sentino_v1_handle_message(const char *json_str);
-#endif
 
 
 #define BK_GATT_ATTR_TYPE(iuuid) {.len = BK_UUID_LEN_16, .uuid = {.uuid16 = iuuid}}
@@ -118,7 +112,6 @@ static void sentino_v1_handle_message(const char *json_str);
 static uint16_t s_prop_cli_config;
 static uint16_t s_conn_ind = ~0;
 
-#if CONFIG_SENTINO_IOT
 /* Sentino: GATT service 0x1910 with just write(0x2B11) + notify(0x2B10) */
 static const bk_gatts_attr_db_t s_gatts_attr_db_service_boarding[] =
 {
@@ -149,94 +142,11 @@ static const bk_gatts_attr_db_t s_gatts_attr_db_service_boarding[] =
                           BK_GATT_RSP_BY_APP),
     },
 };
-#else
-static uint8_t s_ssid[64];
-static uint8_t s_password[64];
-static uint8_t s_auth_token_first_half[AGORA_CONVOAI_REQUEST_TOKEN_SIZE >> 1];
-static uint8_t s_auth_token_second_half[AGORA_CONVOAI_REQUEST_TOKEN_SIZE >> 1];
-static uint8_t s_agora_convoai_server_url[AGORA_CONVOAI_SERVER_URL_SIZE];
-
-static const bk_gatts_attr_db_t s_gatts_attr_db_service_boarding[] =
-{
-    {
-        BK_GATT_PRIMARY_SERVICE_DECL(0xfa00),
-    },
-
-    {
-        BK_GATT_CHAR_DECL(0xea01,
-                          0, NULL,
-                          BK_GATT_CHAR_PROP_BIT_NOTIFY,
-                          BK_GATT_PERM_READ,
-                          BK_GATT_RSP_BY_APP),
-    },
-    {
-        BK_GATT_CHAR_DESC_DECL(BK_GATT_UUID_CHAR_CLIENT_CONFIG,
-                               sizeof(s_prop_cli_config), (uint8_t *)&s_prop_cli_config,
-                               BK_GATT_PERM_READ | BK_GATT_PERM_WRITE,
-                               BK_GATT_RSP_BY_APP),
-    },
-
-    //operation
-    {
-        BK_GATT_CHAR_DECL(0xea02,
-                          0, NULL,
-                          BK_GATT_CHAR_PROP_BIT_WRITE,
-                          BK_GATT_PERM_WRITE,
-                          BK_GATT_RSP_BY_APP),
-    },
-
-    //ssid
-    {
-        BK_GATT_CHAR_DECL(0xea05,
-                          sizeof(s_password), (uint8_t *)s_password,
-                          BK_GATT_CHAR_PROP_BIT_READ | BK_GATT_CHAR_PROP_BIT_WRITE,
-                          BK_GATT_PERM_READ | BK_GATT_PERM_WRITE,
-                          BK_GATT_AUTO_RSP),
-    },
-
-    //password
-    {
-        BK_GATT_CHAR_DECL(0xea06,
-                          sizeof(s_ssid), (uint8_t *)s_ssid,
-                          BK_GATT_CHAR_PROP_BIT_READ | BK_GATT_CHAR_PROP_BIT_WRITE,
-                          BK_GATT_PERM_READ | BK_GATT_PERM_WRITE,
-                          BK_GATT_AUTO_RSP),
-    },
-
-    //auth token first half
-    {
-        BK_GATT_CHAR_DECL(0xea07,
-                          sizeof(s_auth_token_first_half), (uint8_t *)s_auth_token_first_half,
-                          BK_GATT_CHAR_PROP_BIT_READ | BK_GATT_CHAR_PROP_BIT_WRITE,
-                          BK_GATT_PERM_READ | BK_GATT_PERM_WRITE,
-                          BK_GATT_AUTO_RSP),
-    },
-
-    //auth token second half
-    {
-        BK_GATT_CHAR_DECL(0xea08,
-                          sizeof(s_auth_token_second_half), (uint8_t *)s_auth_token_second_half,
-                          BK_GATT_CHAR_PROP_BIT_READ | BK_GATT_CHAR_PROP_BIT_WRITE,
-                          BK_GATT_PERM_READ | BK_GATT_PERM_WRITE,
-                          BK_GATT_AUTO_RSP),
-    },
-
-    //agora convoai server url
-    {
-        BK_GATT_CHAR_DECL(0xea09,
-                          sizeof(s_agora_convoai_server_url), (uint8_t *)s_agora_convoai_server_url,
-                          BK_GATT_CHAR_PROP_BIT_READ | BK_GATT_CHAR_PROP_BIT_WRITE,
-                          BK_GATT_PERM_READ | BK_GATT_PERM_WRITE,
-                          BK_GATT_AUTO_RSP),
-    },
-};
-#endif /* CONFIG_SENTINO_IOT */
 
 static uint16_t s_service_attr_handle = INVALID_ATTR_HANDLE;
 static uint16_t s_char_attr_handle = INVALID_ATTR_HANDLE;        /* notify char */
 static uint16_t s_char_desc_attr_handle = INVALID_ATTR_HANDLE;   /* notify desc (CCCD) */
 
-#if CONFIG_SENTINO_IOT
 static uint16_t s_char_write_char_handle = INVALID_ATTR_HANDLE;  /* V1 write char (0x2B11) */
 
 static uint16_t *const s_boarding_attr_handle_list[sizeof(s_gatts_attr_db_service_boarding) / sizeof(s_gatts_attr_db_service_boarding[0])] =
@@ -246,27 +156,6 @@ static uint16_t *const s_boarding_attr_handle_list[sizeof(s_gatts_attr_db_servic
     &s_char_desc_attr_handle,
     &s_char_write_char_handle,
 };
-#else
-static uint16_t s_char_operation_char_handle = INVALID_ATTR_HANDLE;
-static uint16_t s_char_ssid_char_handle = INVALID_ATTR_HANDLE;
-static uint16_t s_char_password_char_handle = INVALID_ATTR_HANDLE;
-static uint16_t s_char_auth_token_first_half_char_handle = INVALID_ATTR_HANDLE;
-static uint16_t s_char_auth_token_second_half_char_handle = INVALID_ATTR_HANDLE;
-static uint16_t s_char_agora_convoai_server_url_char_handle = INVALID_ATTR_HANDLE;
-
-static uint16_t *const s_boarding_attr_handle_list[sizeof(s_gatts_attr_db_service_boarding) / sizeof(s_gatts_attr_db_service_boarding[0])] =
-{
-    &s_service_attr_handle,
-    &s_char_attr_handle,
-    &s_char_desc_attr_handle,
-    &s_char_operation_char_handle,
-    &s_char_ssid_char_handle,
-    &s_char_password_char_handle,
-    &s_char_auth_token_first_half_char_handle,
-    &s_char_auth_token_second_half_char_handle,
-    &s_char_agora_convoai_server_url_char_handle,
-};
-#endif
 
 static int32_t dm_gatts_get_buff_from_attr_handle(bk_gatts_attr_db_t *attr_list, uint16_t *attr_handle_list, uint32_t size, uint16_t attr_handle, uint32_t *output_index, uint8_t **output_buff, uint32_t *output_size)
 {
@@ -292,7 +181,6 @@ static int32_t dm_gatts_get_buff_from_attr_handle(bk_gatts_attr_db_t *attr_list,
     return 0;
 }
 
-#if CONFIG_SENTINO_IOT
 /*
  * Sentino V1 JSON message handler.
  * Dispatches device.information.get, thing.network.set, thing.network.getwifis,
@@ -323,7 +211,7 @@ static void sentino_v1_handle_message(const char *json_str)
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "type", "device.information.get.response");
         cJSON *data = cJSON_AddObjectToObject(resp, "data");
-        cJSON_AddStringToObject(data, "pid", "vqB8C7fniWRLWL");
+        cJSON_AddStringToObject(data, "pid", SENTINO_DEFAULT_PID);
         cJSON_AddStringToObject(data, "version", "1.0.3");
         cJSON_AddBoolToObject(data, "bind", false);
 
@@ -481,7 +369,6 @@ static void sentino_v1_send_status_code(int code)
     snprintf(json, sizeof(json), "{\"code\":%d}", code);
     sentino_v1_send_response(json);
 }
-#endif /* CONFIG_SENTINO_IOT */
 
 static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t gatts_if, bk_ble_gatts_cb_param_t *comm_param)
 {
@@ -561,7 +448,6 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
         struct gatts_read_evt_param *param = (typeof(param))comm_param;
         wboard_logi("read attr handle %d need rsp %d", param->handle, param->need_rsp);
 
-#if CONFIG_SENTINO_IOT
         /* Sentino V1: no readable characteristics, respond with empty */
         if (param->need_rsp) {
             bk_gatt_rsp_t rsp;
@@ -571,68 +457,6 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
             rsp.attr_value.len = 0;
             bk_ble_gatts_send_response(gatts_if, param->conn_id, param->trans_id, BK_GATT_OK, &rsp);
         }
-#else
-        bk_gatt_rsp_t rsp;
-        uint16_t final_len = 0;
-        memset(&rsp, 0, sizeof(rsp));
-
-        uint8_t *tmp_buff = NULL;
-        uint16_t buff_size = 0;
-        uint8_t valid = 1;
-
-        if (s_char_desc_attr_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-        }
-        else if (s_char_ssid_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-        }
-        else if (s_char_password_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-        }
-        else if (s_char_auth_token_first_half_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-        }
-        else if (s_char_auth_token_second_half_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-        }
-        else if (s_char_agora_convoai_server_url_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-        }
-        else
-        {
-            wboard_loge("invalid read handle %d", param->handle);
-            valid = 0;
-        }
-
-        if (param->need_rsp)
-        {
-            final_len = buff_size - param->offset;
-
-            rsp.attr_value.auth_req = BK_GATT_AUTH_REQ_NONE;
-            rsp.attr_value.handle = param->handle;
-            rsp.attr_value.offset = param->offset;
-
-            if (tmp_buff && valid)
-            {
-                rsp.attr_value.len = final_len;
-                rsp.attr_value.value = tmp_buff + param->offset;
-            }
-            else
-            {
-                rsp.attr_value.len = 0;
-                rsp.attr_value.value = NULL;
-            }
-
-            ret = bk_ble_gatts_send_response(gatts_if, param->conn_id, param->trans_id,
-                                             (tmp_buff && valid ? BK_GATT_OK : BK_GATT_INSUF_RESOURCE), &rsp);
-        }
-#endif
     }
     break;
 
@@ -642,7 +466,7 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
 
         wboard_logi("write attr handle %d len %d offset %d need rsp %d", param->handle, param->len, param->offset, param->need_rsp);
 
-#if CONFIG_SENTINO_IOT
+
         /* Sentino V1: all writes go to 0x2B11, feed into packet assembler */
         if (s_char_write_char_handle == param->handle) {
             if (param->need_rsp) {
@@ -679,220 +503,6 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
             break;
         }
         break; /* Sentino: no other characteristics to handle */
-#else
-        {
-        bk_gatt_rsp_t rsp;
-        uint16_t final_len = 0;
-        memset(&rsp, 0, sizeof(rsp));
-
-        uint8_t *tmp_buff = NULL;
-        uint16_t buff_size = 0;
-        uint8_t valid = 1;
-
-        if (s_char_desc_attr_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-        }
-        else if (s_char_operation_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-            wboard_logi("write boarding op char");
-        }
-        else if (s_char_ssid_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-
-            if (s_ble_boarding_info->ssid_value)
-            {
-                os_free(s_ble_boarding_info->ssid_value);
-                s_ble_boarding_info->ssid_value = NULL;
-                s_ble_boarding_info->ssid_length = 0;
-            }
-
-            s_ble_boarding_info->ssid_length = param->len;
-            s_ble_boarding_info->ssid_value = os_malloc(param->len + 1);
-
-            if (!s_ble_boarding_info->ssid_value)
-            {
-                wboard_loge("alloc ssid err");
-                valid = 0;
-            }
-            else
-            {
-                os_memset(s_ble_boarding_info->ssid_value, 0, param->len + 1);
-                os_memcpy((uint8_t *)s_ble_boarding_info->ssid_value, param->value, param->len);
-
-                wboard_logi("ssid: %s", s_ble_boarding_info->ssid_value);
-            }
-        }
-        else if (s_char_password_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-
-            if (s_ble_boarding_info->password_value)
-            {
-                os_free(s_ble_boarding_info->password_value);
-                s_ble_boarding_info->password_value = NULL;
-                s_ble_boarding_info->password_length = 0;
-            }
-
-            s_ble_boarding_info->password_length = param->len;
-            s_ble_boarding_info->password_value = os_malloc(param->len + 1);
-
-            if (!s_ble_boarding_info->password_value)
-            {
-                wboard_loge("alloc password err");
-                valid = 0;
-            }
-            else
-            {
-                os_memset(s_ble_boarding_info->password_value, 0, param->len + 1);
-                os_memcpy((uint8_t *)s_ble_boarding_info->password_value, param->value, param->len);
-                wboard_logi("password: %s", s_ble_boarding_info->password_value);
-            }
-        }
-        else if (s_char_auth_token_first_half_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-
-            if (s_ble_boarding_info->auth_token_first_half)
-            {
-                os_free(s_ble_boarding_info->auth_token_first_half);
-                s_ble_boarding_info->auth_token_first_half = NULL;
-                s_ble_boarding_info->auth_token_length = 0;
-            }
-
-            s_ble_boarding_info->auth_token_length = param->len;
-            s_ble_boarding_info->auth_token_first_half = os_malloc(param->len + 1);
-
-            if (!s_ble_boarding_info->auth_token_first_half)
-            {
-                wboard_loge("alloc auth token err");
-                valid = 0;
-            }
-            else
-            {
-                os_memset(s_ble_boarding_info->auth_token_first_half, 0, param->len + 1);
-                os_memcpy((uint8_t *)s_ble_boarding_info->auth_token_first_half, param->value, param->len);
-                wboard_logi("auth token first half: %s", s_ble_boarding_info->auth_token_first_half);
-            }
-        }
-        else if (s_char_auth_token_second_half_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-
-            if (s_ble_boarding_info->auth_token_second_half)
-            {
-                os_free(s_ble_boarding_info->auth_token_second_half);
-                s_ble_boarding_info->auth_token_second_half = NULL;
-                s_ble_boarding_info->auth_token_length = 0;
-            }
-
-            s_ble_boarding_info->auth_token_length = param->len;
-            s_ble_boarding_info->auth_token_second_half = os_malloc(param->len + 1);
-
-            if (!s_ble_boarding_info->auth_token_second_half)
-            {
-                wboard_loge("alloc auth token err");
-                valid = 0;
-            }
-            else
-            {
-                os_memset(s_ble_boarding_info->auth_token_second_half, 0, param->len + 1);
-                os_memcpy((uint8_t *)s_ble_boarding_info->auth_token_second_half, param->value, param->len);
-                wboard_logi("auth token second half: %s", s_ble_boarding_info->auth_token_second_half);
-            }
-        }
-        else if (s_char_agora_convoai_server_url_char_handle == param->handle)
-        {
-            bk_ble_gatts_get_attr_value(param->handle, &buff_size, &tmp_buff);
-
-            if (s_ble_boarding_info->agora_convoai_server_url)
-            {
-                os_free(s_ble_boarding_info->agora_convoai_server_url);
-                s_ble_boarding_info->agora_convoai_server_url = NULL;
-                s_ble_boarding_info->agora_convoai_server_length = 0;
-            }
-
-            s_ble_boarding_info->agora_convoai_server_length = param->len;
-            s_ble_boarding_info->agora_convoai_server_url = os_malloc(param->len + 1);
-
-            if (!s_ble_boarding_info->agora_convoai_server_url)
-            {
-                wboard_loge("alloc convoai server url err");
-                valid = 0;
-            }
-            else
-            {
-                os_memset(s_ble_boarding_info->agora_convoai_server_url, 0, param->len + 1);
-                os_memcpy((uint8_t *)s_ble_boarding_info->agora_convoai_server_url, param->value, param->len);
-                wboard_logi("agora convoai server url: %s", s_ble_boarding_info->agora_convoai_server_url);
-            }
-        }
-        else
-        {
-            wboard_loge("invalid write handle %d", param->handle);
-            valid = 0;
-        }
-
-        if (param->need_rsp)
-        {
-            final_len = (param->len < buff_size - param->offset ? param->len :  buff_size - param->offset);
-
-            if (tmp_buff)
-            {
-                os_memcpy(tmp_buff + param->offset, param->value, final_len);
-            }
-
-            rsp.attr_value.auth_req = BK_GATT_AUTH_REQ_NONE;
-            rsp.attr_value.handle = param->handle;
-            rsp.attr_value.offset = param->offset;
-
-            if (tmp_buff && valid)
-            {
-                rsp.attr_value.len = final_len;
-                rsp.attr_value.value = tmp_buff + param->offset;
-            }
-
-            ret = bk_ble_gatts_send_response(gatts_if, param->conn_id, param->trans_id, valid ? BK_GATT_OK : BK_GATT_INSUF_RESOURCE, &rsp);
-        }
-
-        if (s_char_operation_char_handle == param->handle)
-        {
-            uint16_t opcode = 0;
-            uint16_t length = 0;
-            uint8_t *data = NULL;
-
-            if (param->len < 2)
-            {
-                wboard_loge("len invalid %d", param->len);
-                break;
-            }
-
-            opcode = param->value[0] | param->value[1] << 8;
-
-            if (param->len >= 4)
-            {
-                length = param->value[2] | param->value[3] << 8;
-            }
-
-            if (param->len > 4)
-            {
-                data = &param->value[4];
-            }
-
-            if (s_ble_boarding_info && s_ble_boarding_info->cb)
-            {
-                s_ble_boarding_info->cb(opcode, length, data);
-            }
-            else
-            {
-                wboard_loge("invalid s_ble_boarding_info");
-                break;
-            }
-        }
-        }
-#endif /* !CONFIG_SENTINO_IOT */
 
     }
     break;
@@ -950,10 +560,8 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
                     param->conn_id);
 
         s_conn_ind = param->conn_id;
-#if CONFIG_SENTINO_IOT
         s_sentino_conn_ind = param->conn_id;
         v1_assembler_reset(&s_v1_assembler);
-#endif
     }
     break;
 
@@ -972,9 +580,7 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
                    );
 
         s_conn_ind = ~0;
-#if CONFIG_SENTINO_IOT
         s_sentino_conn_ind = ~0;
-#endif
     }
     break;
 
@@ -1288,17 +894,9 @@ int wifi_boarding_deinit(void)
     s_service_attr_handle = INVALID_ATTR_HANDLE;
     s_char_attr_handle = INVALID_ATTR_HANDLE;
     s_char_desc_attr_handle = INVALID_ATTR_HANDLE;
-#if CONFIG_SENTINO_IOT
     s_char_write_char_handle = INVALID_ATTR_HANDLE;
     v1_assembler_reset(&s_v1_assembler);
     s_sentino_conn_ind = ~0;
-#else
-    os_memset(s_ssid, 0, sizeof(s_ssid));
-    os_memset(s_password, 0, sizeof(s_password));
-    s_char_operation_char_handle = INVALID_ATTR_HANDLE;
-    s_char_ssid_char_handle = INVALID_ATTR_HANDLE;
-    s_char_password_char_handle = INVALID_ATTR_HANDLE;
-#endif
 
     return BK_OK;
 }
@@ -1389,11 +987,7 @@ int wifi_boarding_adv_start(void)
     }
 
 #define BEKEN_COMPANY_ID                    (0x05F0)
-#if CONFIG_SENTINO_IOT
 #define BOARDING_UUID                       (0xA101)
-#else
-#define BOARDING_UUID                       (0xFE01)
-#endif
 
 #if 0
     const uint8_t baording_service_uuid[16] =
@@ -1444,7 +1038,6 @@ int wifi_boarding_adv_start(void)
     adv_data[adv_index++] = 0x06;
     adv_data[len_index] = 2;
 
-#if CONFIG_SENTINO_IOT
     /* Service UUIDs (AD type 0x03): 4B */
     len_index = adv_index;
     adv_data[adv_index++] = 0x00;
@@ -1452,11 +1045,10 @@ int wifi_boarding_adv_start(void)
     adv_data[adv_index++] = BOARDING_UUID & 0xFF;
     adv_data[adv_index++] = BOARDING_UUID >> 8;
     adv_data[len_index] = 3;
-#endif
 
     /* Service Data (AD type 0x16): UUID(2B) + Flag(1B) + PID = variable */
     {
-        const char *pid_str = "vqB8C7fniWRLWL";
+        const char *pid_str = SENTINO_DEFAULT_PID;
         uint8_t pid_len = strlen(pid_str);
 
         len_index = adv_index;
@@ -1489,7 +1081,6 @@ int wifi_boarding_adv_start(void)
         goto error;
     }
 
-#if CONFIG_SENTINO_IOT
     /* Scan Response: Name + Manufacturer Data (per ref-ble.md §2.2) */
     {
         uint8_t scan_rsp[251] = {0};
@@ -1555,7 +1146,6 @@ int wifi_boarding_adv_start(void)
             goto error;
         }
     }
-#endif
 
     const bk_ble_gap_ext_adv_t ext_adv =
     {

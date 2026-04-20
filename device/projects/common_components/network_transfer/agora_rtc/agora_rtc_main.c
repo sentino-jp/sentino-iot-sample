@@ -33,7 +33,16 @@
 #include "audio_engine.h"
 #include "video_engine.h"
 #include <driver/aon_rtc.h>
-#include "agora_convoai_iot.h"
+
+/* Inlined from the deleted agora_convoai_iot.h. Kept here because the
+ * Sentino path still feeds an app_id+token pair into agora_main(). */
+#define AGORA_CONVOAI_CHANNEL_NAME_SIZE     (64 + 1)
+typedef struct {
+    char app_id[33];
+    char rtc_token[512];
+    bool token_enable;
+    uint32_t timestamp;
+} agora_convoai_configs_resp_t;
 
 #define TAG "agora_main"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -61,11 +70,6 @@ bool agora_runing = false;
 static agora_rtc_config_t agora_rtc_config = DEFAULT_AGORA_RTC_CONFIG();
 static agora_rtc_option_t agora_rtc_option = DEFAULT_AGORA_RTC_OPTION();
 char agora_channel_name[AGORA_CONVOAI_CHANNEL_NAME_SIZE] = {0};
-#if !CONFIG_SENTINO_IOT
-static agora_convoai_configs_resp_t *convoai_configs = NULL;
-static agora_convoai_start_resp_t *convoai_start_resp = NULL;
-static beken2_timer_t agora_convoai_start_countdown_ms_timer = { 0 };
-#endif
 
 static uint32_t g_target_bps = BANDWIDTH_ESTIMATE_MIN_BITRATE;
 extern bool smart_config_running;
@@ -274,10 +278,7 @@ void agora_main(void *args)
     agora_rtc_option.audio_config.pcm_channel_num = CONFIG_PCM_CHANNEL_NUM;
 #endif
     agora_rtc_option.p_token = ((configs->rtc_token[0] == '\0' || (0 == strcmp(configs->app_id, configs->rtc_token))) ? NULL : configs->rtc_token);
-#if !CONFIG_SENTINO_IOT
-    agora_rtc_option.uid = AGORA_CONVOAI_LOCAL_UID;
-#endif
-    /* For Sentino, uid is set by sentino_convoai_engine_start() before calling agora_start() */
+    /* uid is set by sentino_convoai_engine_start() before calling agora_start(). */
     LOGI("appid=%s, token=%s\n", agora_rtc_config.p_appid, NULL == agora_rtc_option.p_token ? "NULL" : agora_rtc_option.p_token);
 
     ret = bk_agora_rtc_start(&agora_rtc_option);
@@ -408,148 +409,6 @@ bk_err_t agora_stop(void)
     return BK_OK;
 }
 
-static int get_ota_version(const char *url, int8_t *major_ota, int8_t *minor_ota, int8_t *patch_ota)
-{
-  char *version = strstr(url, "app_pack_");
-  if (NULL == version) {
-    LOGE("ota url invalid. app_pack_ string not find\n");
-    return -1;
-  }
-
-  char *tmp = version;
-  while (tmp) {
-    LOGI("%s%d: tmp=%s\n", __FUNCTION__, __LINE__, tmp);
-    if (NULL != (tmp = strstr(version + strlen("app_pack_"), "app_pack_"))) {
-      version = tmp;
-      LOGI("%s%d: version=%s\n", __FUNCTION__, __LINE__, version);
-    }
-  }
-
-  if (3 != sscanf(version, "app_pack_%d.%d.%d.rbl", major_ota, minor_ota, patch_ota)) {
-    LOGE("ota version invalid.\n");
-    return -1;
-  }
-
-  return 0;
-}
-
-static void replace_https_to_http(char *url)
-{
-    const char* pos = strstr(url, "https://");
-    if (pos != url) {
-        return;
-    }
-
-    strcpy(url, "http://");
-    char *dst = url + strlen("http://");
-    char *src = url + strlen("https://");
-    int len = strlen(src) + 1;
-    memmove(dst, src, len);
-    LOGI("%s%d: url=%s\n", __FUNCTION__, __LINE__, url);
-}
-
-static bool g_ota_inited = false;
-extern int bk_http_ota_download(const char *uri);
-static void ota_task(void *args)
-{
-    LOGI("curr version: v%s built at %s %s\n", AGORA_CONVOAI_APP_VERSION, __DATE__, __TIME__);
-
-    /* step1. 从服务器拉取OTA信息 */
-    agora_convoai_ota_version_t *ota_version = agora_convoai_ota_version_get();
-        if (NULL == ota_version) {
-        LOGI("donot need ota update. no version find\n");
-            goto L_END;
-        }
-
-    /* step2. 从OTA升级固件下载URL中的固件名，解析出固件对应的版本号，固件的命名规则app_pack_x.x.x.rbl x.x.x即为版本号 */
-    int8_t major_ota = -1, minor_ota = -1, patch_ota = -1;
-    if (0 != get_ota_version(ota_version->url, &major_ota, &minor_ota, &patch_ota)) {
-        LOGE("ota version parse failed.\n");
-        goto L_END;
-    }
-    LOGI("OTA version: firmware_id=%s, ver=%d.%d.%d\n", ota_version->firmware_id, major_ota, minor_ota, patch_ota);
-
-    /* step3. 从flash中读取OTA升级信息 */
-    agora_convoai_ota_info_t ota_info = {0};
-            agora_convoai_ota_info_persistence_read(&ota_info);
-    LOGI("OTA flash inf: firmware_id=%s, version=%d.%d.%d\n", ota_info.firmware_id, ota_info.major, ota_info.minor, ota_info.patch);
-
-    /* 如果flash中的firmware_id与服务器给的一致，说明设备已经OTA升级完成，本次为升级完成后设备重启 */
-    if (0 == strcmp(ota_version->firmware_id, ota_info.firmware_id)) {
-        int8_t major_cur = 0, minor_cur = 0, patch_cur = 0;
-        agora_convoai_ota_result_report_t ota_report;
-        sscanf(AGORA_CONVOAI_APP_VERSION, "%d.%d.%d", &major_cur, &minor_cur, &patch_cur);
-        /* 如果falsh中记录的OTA升级版本号与当前运行的软件版本一样就表情OTA升级成功，反之则代表OTA升级失败 */
-        ota_report.is_install_success = (major_cur == ota_info.major && minor_cur == ota_info.minor && patch_cur == ota_info.patch);
-        LOGI("OTA update success=%d\n", ota_report.is_install_success);
-
-        /* 上报firmware_id对应的OTA升级结果 */
-        snprintf(ota_report.firmware_id, sizeof(ota_report.firmware_id), "%s", ota_version->firmware_id);
-        if (0 == agora_convoai_ota_result_report(&ota_report)) {
-            /* 上报成功，则清空flash中记录的OTA升级信息 */
-            memset(&ota_info, 0, sizeof(ota_info));
-                    agora_convoai_ota_info_persistence_write(&ota_info);
-                }
-            goto L_END;
-        }
-
-    /* step4. OTA升级 */
-    /* step4.1 先尝试关闭convoai，再进行OTA升级 */
-        app_event_send_msg(APP_EVT_CONVOAI_EXIT, 0);
-        rtos_delay_milliseconds(1000);
-
-    /* step4.2 flash中记录本次OTA升级信息 */
-    snprintf(ota_info.firmware_id, sizeof(ota_info.firmware_id), "%s", ota_version->firmware_id);
-    ota_info.major = major_ota;
-    ota_info.minor = minor_ota;
-    ota_info.patch = patch_ota;
-    agora_convoai_ota_info_persistence_write(&ota_info);
-
-        LOGI("%s%d: agora ota process start.\n", __FUNCTION__, __LINE__);
-
-    /* step4.3 如果给的URL是https则替换为http */
-    replace_https_to_http(ota_version->url);
-    /* step4.4 OTA升级 */
-    int err = bk_http_ota_download(ota_version->url);
-        if (0 != err) {
-            LOGE("%s%d: agora ota process failed.\n", __FUNCTION__, __LINE__);
-            goto L_END;
-        }
-        LOGI("%s%d: agora ota process success.\n", __FUNCTION__, __LINE__);
-
-L_END:
-        if (ota_version) {
-            psram_free(ota_version);
-            ota_version = NULL;
-        }
-
-    LOGI("%s%d: agora ota task exit.\n", __FUNCTION__, __LINE__);
-
-    rtos_delete_thread(NULL);
-}
-
-/* 当前有且仅在设备上电且设备联网成功后尝试一次OTA升级 */
-void agora_convoai_ota_check()
-{
-    bk_err_t ret = BK_OK;
-    beken_thread_t ota_pid = NULL;
-
-    if (g_ota_inited) {
-        LOGI("ota daemon already inited.\n");
-        return;
-    }
-
-    ret = rtos_create_thread(&ota_pid, 4, "agora_ota_task", ota_task, 4 * 1024, NULL);
-    if (ret != kNoErr)
-    {
-        LOGE("%s, %d, create ota_daemon task fail, ret:%d\n", __func__, __LINE__, ret);
-        return;
-    }
-
-    g_ota_inited = true;
-    LOGI("create ota_daemon task complete\n");
-}
-
 static bk_err_t agora_start(agora_convoai_configs_resp_t *configs)
 {
     bk_err_t ret = BK_OK;
@@ -598,7 +457,6 @@ fail:
 }
 /* call this api when wifi autoconnect */
 
-#if CONFIG_SENTINO_IOT
 #include "sentino_mqtt.h"
 #include "sentino_dev_info.h"
 
@@ -728,261 +586,8 @@ void sentino_convoai_engine_stop(void)
     LOGI("sentino engine stopped\n");
 }
 
-#endif /* CONFIG_SENTINO_IOT */
-
-#if !CONFIG_SENTINO_IOT
-
-static void __timer_expire_handler()
-{
-    LOGI("convoai timer exipre. donot stop agent now\n");
-}
-
-static void __convoai_timer_start_or_relaunch()
-{
-    bk_err_t result;
-
-    if (agora_convoai_start_countdown_ms_timer.handle) {
-        LOGI("convoai timer exist, relaunch timer.\n");
-        rtos_oneshot_reload_timer(&agora_convoai_start_countdown_ms_timer);
-        return;
-    }
-
-    result = rtos_init_oneshot_timer(&agora_convoai_start_countdown_ms_timer, 180 * 1000, __timer_expire_handler, NULL, NULL);
-    if (kNoErr != result) {
-        LOGE("convoai timer create failed.\n");
-        return;
-    }
-
-    result = rtos_start_oneshot_timer(&agora_convoai_start_countdown_ms_timer);
-    if (kNoErr != result) {
-        LOGE("convoai timer start failed.\n");
-        return;
-    }
-
-    LOGI("convoai timer start running.\n");
-}
-
-int agora_convoai_engine_load_config()
-{
-    if (convoai_configs) {
-        LOGI("convoai config already loaded. refresh config\n");
-        psram_free(convoai_configs);
-        convoai_configs = NULL;
-    }
-
-    agora_convoai_configs_param_t convoai_config_param;
-    snprintf(convoai_config_param.channel_name, sizeof(convoai_config_param.channel_name), "%s", "*");
-    convoai_config_param.local_uid = AGORA_CONVOAI_LOCAL_UID;
-    LOGI("channel_name=%s, uid=%d\n", convoai_config_param.channel_name, convoai_config_param.local_uid);
-    if (NULL == (convoai_configs = agora_convoai_configs_get(&convoai_config_param))) {
-        LOGE("convoai get configs failed.\n");
-        return -1;
-    }
-
-    LOGI("convoai get config success. appid=%s, rtc_token=%s\n", convoai_configs->app_id, convoai_configs->rtc_token);
-    return 0;
-}
-
-void agora_convoai_engine_start()
-{
-    /* 判断是否重复启动，重复启动直接退出 */
-    if (convoai_start_resp) {
-        LOGI("convoai has already started. refresh timer then return.\n");
-        __convoai_timer_start_or_relaunch();
-        return;
-        }
-
-    /* 如果设备联网后http获取设备配置失败，需先拉取配置，如果拉取配置仍失败，则退出 */
-    if (NULL == convoai_configs) {
-        LOGI("convoai config not load, load configs first.\n");
-        if (0 != agora_convoai_engine_load_config()) {
-            LOGI("convoai config load failed.\n");
-            return;
-    }
-    }
-
-    /**
-     * 如果APPID启用了安全校验token模式，需检查token是否已过期，假定token有效期为12小时
-     * 此处trick，获取token时的频道号设置为通配符*，以此来解决channel name全局一致性带来的每次token都需要更新的问题
-     */
-    if (convoai_configs->token_enable) {
-        uint32_t now = rtos_get_time();
-        #define TOKEN_TIMEOUS_MSEC (12UL * 60 * 60 * 1000)
-        uint32_t elapsed = (now >= convoai_configs->timestamp) ? (now - convoai_configs->timestamp) : (UINT32_MAX - convoai_configs->timestamp + now);
-        if (elapsed >= TOKEN_TIMEOUS_MSEC) {
-            LOGI("convoai token expired. reload configs\n");
-            if (0 != (agora_convoai_engine_load_config())) {
-                LOGI("convoai config reload failed.\n");
-                return;
-        }
-        }
-    }
-
-    /* 拉起本地rtsa */
-    agora_convoai_get_channel_name(agora_channel_name);
-    agora_start(convoai_configs);
-
-    /* 拉起convoai服务端 */
-    agora_convoai_start_param_t convoai_start_param;
-    os_memcpy(convoai_start_param.channel_name, agora_channel_name, sizeof(convoai_start_param.channel_name));
-    convoai_start_param.local_uid = AGORA_CONVOAI_LOCAL_UID;
-    convoai_start_param.agent_uid = AGORA_CONVOAI_AGENT_UID;
-    if (NULL == (convoai_start_resp = agora_convoai_start(&convoai_start_param))) {
-        LOGE("convoai start failed.\n");
-        return;
-    }
-    LOGI("convoai start succcess. conversation_id=%s\n", convoai_start_resp->conversation_id);
-
-    /* 拉取定时器 */
-    __convoai_timer_start_or_relaunch();
-}
-
-void agora_convoai_engine_stop()
-{
-    /* 退出rtsa */
-    agora_stop();
-
-    /* 判断是否已启动，未启动直接退出 */
-    if (NULL == convoai_start_resp) {
-        LOGI("convoai has not started. just return\n");
-        return;
-    }
-
-    /* 退出convoai服务端 */
-    agora_convoai_stop_param_t convoai_stop_param;
-    os_memcpy(convoai_stop_param.conversation_id, convoai_start_resp->conversation_id, sizeof(convoai_stop_param.conversation_id));
-    agora_convoai_stop(&convoai_stop_param);
-    psram_free(convoai_start_resp);
-    convoai_start_resp = NULL;
-    LOGI("convoai stop success.\n");
-
-    /* 取消定时器 */
-    if (rtos_is_oneshot_timer_running(&agora_convoai_start_countdown_ms_timer)) {
-        bk_err_t ret = rtos_stop_oneshot_timer(&agora_convoai_start_countdown_ms_timer);
-        if(kNoErr != ret) {
-            LOGE("stop convoai timer failed.\n");
-        } else {
-            LOGI("stop convoai timer success.\n");
-        }
-        }
-}
-#endif /* !CONFIG_SENTINO_IOT */
-
-#if 0
-static void agora_test_start()
-{
-    agora_convoai_start_resp_t *resp;
-    agora_convoai_start_param_t param;
-
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-
-    snprintf(param.channel_name, sizeof(param.channel_name), "%s", "benchmark");
-    param.local_uid = 1;
-    param.agent_uid = 11;
-    resp = agora_convoai_start(&param);
-    if (resp) {
-        psram_free(resp);
-    }
-}
-
-static void agora_test_stop()
-{
-    agora_convoai_stop_param_t param;
-
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-
-    snprintf(param.conversation_id, sizeof(param.conversation_id), "%s", "01234567890");
-    agora_convoai_stop(&param);
-}
-
-static void agora_test_ota()
-{
-    agora_convoai_ota_version_t *version;
-
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-
-    version = agora_convoai_ota_version_get();
-    if (version) {
-        psram_free(version);
-        }
-}
-
-static void agora_test_ota_report()
-{
-    agora_convoai_ota_result_report_t report;
-
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-
-    snprintf(report.firmware_id, sizeof(report.firmware_id), "%s", "123");
-    report.is_install_success = true;
-    agora_convoai_ota_result_report(&report);
-}
-
-static void agora_test_token()
-{
-    agora_convoai_configs_param_t param;
-    agora_convoai_configs_resp_t *resp;
-
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-
-    snprintf(param.channel_name, sizeof(param.channel_name), "%s", "benchmark");
-    param.local_uid = AGORA_CONVOAI_LOCAL_UID;
-    resp = agora_convoai_configs_get(&param);
-    if (resp) {
-        psram_free(resp);
-    }
-}
-
-static void agora_test_clear()
-{
-    agora_convoai_ota_info_t ota_info;
-
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-
-    memset(&ota_info, 0, sizeof(ota_info));
-    agora_convoai_ota_info_persistence_write(&ota_info);
-}
-
-static void agora_test_inf()
-{
-    agora_convoai_ota_info_t ota_info;
-
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-
-    memset(&ota_info, 0, sizeof(ota_info));
-    agora_convoai_ota_info_persistence_read(&ota_info);
-
-    LOGI("ota firmware_id=%s, version=%d.%d.%d\n", ota_info.firmware_id, ota_info.major, ota_info.minor, ota_info.patch);
-}
-
-static void agora_test_volume_increase()
-{
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-    //bk_key_soft_volume_increase();
-}
-
-static void agora_test_volume_decrease()
-{
-    LOGI("%s%d\n", __FUNCTION__, __LINE__);
-    //bk_key_soft_volume_decrease();
-}
-
-static const struct cli_command agora_commands[] = {
-    {"agstart",     NULL, agora_test_start},
-    {"agstop",      NULL, agora_test_stop},
-    {"agota",       NULL, agora_test_ota},
-    {"agotareport", NULL, agora_test_ota_report},
-    {"agtoken",     NULL, agora_test_token},
-    {"agclear",     NULL, agora_test_clear},
-    {"aginfo",      NULL, agora_test_inf},
-    {"aginc",       NULL, agora_test_volume_increase},
-    {"agdec",       NULL, agora_test_volume_decrease},
-};
-#define AGORA_CMD_CNT (sizeof(agora_commands) / sizeof(struct cli_command))
-#endif
-
 int agora_rtc_cli_init(void)
 {
-    //cli_register_commands(agora_commands, AGORA_CMD_CNT);
+    sentino_dev_info_cli_init();
     return 0;
 }

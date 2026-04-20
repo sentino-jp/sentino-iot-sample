@@ -2,11 +2,7 @@
 #define __BK_SMART_CONFIG_H__
 
 #if CONFIG_AGORA_IOT_SDK
-#if CONFIG_SENTINO_IOT
 #include "bk_smart_config_sentino_adapter.h"
-#else
-#include "bk_smart_config_agora_adapter.h"
-#endif
 #endif
 
 #if CONFIG_BK_WSS_TRANS

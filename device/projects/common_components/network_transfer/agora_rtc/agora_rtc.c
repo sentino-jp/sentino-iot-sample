@@ -9,7 +9,15 @@
 #include "aud_intf.h"
 #include "agora_rtc.h"
 #include "agora_config.h"
-#include "bk_smart_config_agora_adapter.h"
+
+#if CONFIG_ENABLE_AGORA_DATASTREAM
+/* Inlined from the deleted bk_smart_config_agora_adapter.h. The Sentino
+ * adapter still creates `datastream_queue` so the on_stream_message
+ * callback doesn't assert on a NULL queue. */
+typedef struct {
+    char *data;
+} bk_agora_ai_data_stream_t;
+#endif
 
 
 #define TAG "agora_rtc"
