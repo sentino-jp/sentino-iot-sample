@@ -141,9 +141,17 @@ $('#form-login').addEventListener('submit', async (e) => {
       const dcs = await api.getDataCenterList();
       logIx('ix-login', 'api', 'POST /v1/common/getDataCenterList', {}, dcs);
       if (dcs && dcs.length > 0) {
-        state.mqttUrl = dcs[0].mqttUrl || 'mqtt-iot.sentino.jp';
+        // API may return mqttUrl as "host:port"; BLE protocol requires bare host in `mq`.
+        const raw = dcs[0].mqttUrl || 'mqtt-iot.sentino.jp';
+        const colon = raw.lastIndexOf(':');
+        if (colon > 0 && /^\d+$/.test(raw.slice(colon + 1))) {
+          state.mqttUrl = raw.slice(0, colon);
+          state.mqttPort = parseInt(raw.slice(colon + 1), 10);
+        } else {
+          state.mqttUrl = raw;
+        }
         state.mqttSslPort = dcs[0].mqttSslPort || '8883';
-        debugLog(`mqttUrl=${state.mqttUrl}`, 'api');
+        debugLog(`mqttUrl=${state.mqttUrl} port=${state.mqttPort}`, 'api');
       }
     } catch (err) {
       debugLog(`getDataCenterList warning: ${err.message}`, 'err');
