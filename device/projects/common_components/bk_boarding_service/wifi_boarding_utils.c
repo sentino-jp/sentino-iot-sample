@@ -322,7 +322,7 @@ static void sentino_v1_handle_message(const char *json_str)
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "type", "device.information.get.response");
         cJSON *data = cJSON_AddObjectToObject(resp, "data");
-        cJSON_AddStringToObject(data, "pid", "bJ2aBSg2tMmTNa");
+        cJSON_AddStringToObject(data, "pid", "vqB8C7fniWRLWL");
         cJSON_AddStringToObject(data, "version", "1.0.3");
         cJSON_AddBoolToObject(data, "bind", false);
 
@@ -1455,7 +1455,7 @@ int wifi_boarding_adv_start(void)
 
     /* Service Data (AD type 0x16): UUID(2B) + Flag(1B) + PID = variable */
     {
-        const char *pid_str = "bJ2aBSg2tMmTNa";
+        const char *pid_str = "vqB8C7fniWRLWL";
         uint8_t pid_len = strlen(pid_str);
 
         len_index = adv_index;

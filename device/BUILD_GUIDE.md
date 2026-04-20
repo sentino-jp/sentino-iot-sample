@@ -65,14 +65,14 @@ Sentino IoT 平台
 │   └── package_name       com.yiyuan
 │
 ├── 产品 (Product) ─── 设备型号，同型号设备共享
-│   ├── PID                bJ2aBSg2tMmTNa
+│   ├── PID                vqB8C7fniWRLWL
 │   ├── MQTT Topic 前缀    rlink/v2/{pid}/{uuid}/...
 │   ├── 物模型定义
 │   └── OTA 升级通道
 │
 ├── 设备 (Device) ─── 三元组，每台设备唯一
-│   ├── UUID               ct01gZ3tc63rMQEv          ← MQTT 认证身份
-│   ├── KEY                c2aa90c6d59b4f41...        ← HMAC-SHA256 签名密钥
+│   ├── UUID               ct01kQBXBK7h63H8          ← MQTT 认证身份
+│   ├── KEY                0c6ceda19a574413...        ← HMAC-SHA256 签名密钥
 │   └── MAC                C8:47:8C:4F:20:FF
 │
 └── 用户 (User) ─── App 登录获得，通过 BLE 配网传给设备
@@ -90,9 +90,9 @@ Sentino IoT 平台
 
 | 配置项 | 值 | 文件 |
 |--------|-----|------|
-| Device UUID | `ct01gZ3tc63rMQEv` | `sentino_mqtt.h` (硬编码，后续改为 NVS) |
-| Device KEY | `c2aa90c6d59b4f41...` | `sentino_mqtt.h` (硬编码，后续改为 NVS) |
-| Product ID (PID) | `bJ2aBSg2tMmTNa` | `agora_rtc_main.c` (硬编码) |
+| Device UUID | `ct01kQBXBK7h63H8` | `sentino_mqtt.h` (硬编码，后续改为 NVS) |
+| Device KEY | `0c6ceda19a574413...` | `sentino_mqtt.h` (硬编码，后续改为 NVS) |
+| Product ID (PID) | `vqB8C7fniWRLWL` | `agora_rtc_main.c` (硬编码) |
 | MQTT Broker | `mqtt-iot.sentino.jp` | BLE 配网传入，存 NVS |
 | MQTT Port | `1883` | `sentino_mqtt.c` |
 | MQTT Client ID | `rlink_{uuid}_V2` | `sentino_mqtt.c` |

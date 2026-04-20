@@ -20,8 +20,8 @@ extern "C" {
 #define SENTINO_CHANNEL_NAME_SIZE   128
 
 /* Temporary hardcoded three-tuple for development. Replace with NVS read when factory provisioning is ready. */
-#define SENTINO_MOCK_UUID           "ct01gZ3tc63rMQEv"
-#define SENTINO_MOCK_KEY            "c2aa90c6d59b4f419b9a545965762503"
+#define SENTINO_MOCK_UUID           "ct01kQBXBK7h63H8"
+#define SENTINO_MOCK_KEY            "0c6ceda19a574413b92f0e1185f73c80"
 
 /* Provisioning info received from BLE (thing.network.set) */
 typedef struct {

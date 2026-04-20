@@ -634,7 +634,7 @@ void sentino_convoai_engine_init(void)
     /* Use mock three-tuple for development */
     const char *uuid = SENTINO_MOCK_UUID;
     const char *key = SENTINO_MOCK_KEY;
-    const char *pid = prov_info.pid[0] ? prov_info.pid : "bJ2aBSg2tMmTNa";
+    const char *pid = prov_info.pid[0] ? prov_info.pid : "vqB8C7fniWRLWL";
 
     LOGI("sentino init: broker=%s, port=%u, uuid=%s\n",
          prov_info.mqtt_broker, prov_info.mqtt_port, uuid);
