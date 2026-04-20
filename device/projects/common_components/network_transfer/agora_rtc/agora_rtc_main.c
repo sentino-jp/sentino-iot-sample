@@ -600,6 +600,7 @@ fail:
 
 #if CONFIG_SENTINO_IOT
 #include "sentino_mqtt.h"
+#include "sentino_dev_info.h"
 
 static sentino_rtc_params_t s_sentino_rtc_params;
 static agora_convoai_configs_resp_t s_sentino_configs;
@@ -623,6 +624,25 @@ static void sentino_issue_handler(const char *code, const char *payload_json)
 
 void sentino_convoai_engine_init(void)
 {
+    /* Step 1: load device triple (NVS-backed). In TEST builds the seed
+     * triple from sentino_dev_info.h is auto-written if flash is empty. */
+#ifdef SENTINO_TRIPLE_TEST
+    sentino_triple_t test = {0};
+    strncpy(test.Uuid,   SENTINO_TEST_UUID,   sizeof(test.Uuid)   - 1);
+    strncpy(test.Secret, SENTINO_TEST_SECRET, sizeof(test.Secret) - 1);
+    strncpy(test.Mac,    SENTINO_TEST_MAC,    sizeof(test.Mac)    - 1);
+    strncpy(test.Pid,    SENTINO_TEST_PID,    sizeof(test.Pid)    - 1);
+    sentino_dev_info_load(SENTINO_DEFAULT_PID, &test);
+#else
+    sentino_dev_info_load(SENTINO_DEFAULT_PID, NULL);
+#endif
+
+    if (sentino_dev_info_get_state() != SENTINO_DEV_AUTHORIZED) {
+        LOGE("sentino UNAUTHORIZED — device needs factory burn-in or dynamic register.\n");
+        // TODO: hook factory_dynamic_register here once backend supports it.
+        return;
+    }
+
     sentino_provision_info_t prov_info = {0};
     sentino_provision_info_read(&prov_info);
 
@@ -631,15 +651,12 @@ void sentino_convoai_engine_init(void)
         return;
     }
 
-    /* Use mock three-tuple for development */
-    const char *uuid = SENTINO_MOCK_UUID;
-    const char *key = SENTINO_MOCK_KEY;
-    const char *pid = prov_info.pid[0] ? prov_info.pid : "vqB8C7fniWRLWL";
+    const sentino_triple_t *t = sentino_dev_info_get_triple();
+    LOGW("sentino init: broker=%s, port=%u, uuid=%s, pid=%s\n",
+         prov_info.mqtt_broker, prov_info.mqtt_port, t->Uuid, t->Pid);
 
-    LOGI("sentino init: broker=%s, port=%u, uuid=%s\n",
-         prov_info.mqtt_broker, prov_info.mqtt_port, uuid);
-
-    sentino_mqtt_init(prov_info.mqtt_broker, prov_info.mqtt_port, uuid, key, pid);
+    sentino_mqtt_init(prov_info.mqtt_broker, prov_info.mqtt_port,
+                      t->Uuid, t->Secret, t->Pid);
 
     if (0 != sentino_mqtt_connect()) {
         LOGE("sentino MQTT connect failed\n");

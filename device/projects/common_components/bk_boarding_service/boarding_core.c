@@ -27,6 +27,7 @@
 #include "bk_factory_config.h"
 #if CONFIG_SENTINO_IOT
 #include "sentino_mqtt.h"
+#include "sentino_dev_info.h"
 #else
 #include "agora_convoai_iot.h"
 #endif
@@ -261,8 +262,22 @@ static void bk_genie_message_handle(void)
                 {
                     LOGI("DBEVT_AGORA_DEVICE_ID_REQUEST\n");
 #if CONFIG_SENTINO_IOT
-                    /* Sentino uses UUID from three-tuple, return mock UUID for now */
-                    const char *dev_uuid = SENTINO_MOCK_UUID;
+                    /* Sentino UUID = device triple (NVS-backed). Load now if engine
+                     * init hasn't run yet (BLE provisioning happens before init). */
+                    if (sentino_dev_info_get_state() != SENTINO_DEV_AUTHORIZED) {
+#ifdef SENTINO_TRIPLE_TEST
+                        sentino_triple_t test = {0};
+                        strncpy(test.Uuid,   SENTINO_TEST_UUID,   sizeof(test.Uuid)   - 1);
+                        strncpy(test.Secret, SENTINO_TEST_SECRET, sizeof(test.Secret) - 1);
+                        strncpy(test.Mac,    SENTINO_TEST_MAC,    sizeof(test.Mac)    - 1);
+                        strncpy(test.Pid,    SENTINO_TEST_PID,    sizeof(test.Pid)    - 1);
+                        sentino_dev_info_load(SENTINO_DEFAULT_PID, &test);
+#else
+                        sentino_dev_info_load(SENTINO_DEFAULT_PID, NULL);
+#endif
+                    }
+                    const sentino_triple_t *t = sentino_dev_info_get_triple();
+                    const char *dev_uuid = t ? t->Uuid : "";
                     LOGI("device uuid=%s\n", dev_uuid);
                     bk_genie_boarding_event_notify_with_data(BOARDING_OP_GET_DEVICE_ID, BK_OK, (char *)dev_uuid, strlen(dev_uuid));
 #else

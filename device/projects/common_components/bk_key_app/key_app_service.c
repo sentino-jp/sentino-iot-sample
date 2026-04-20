@@ -23,6 +23,9 @@
 #include <common/bk_include.h>
 #include "components/bluetooth/bk_dm_bluetooth.h"
 #include "app_main.h"
+#if CONFIG_SENTINO_IOT
+#include "sentino_mqtt.h"
+#endif
 #if (CONFIG_SYS_CPU0 && (CONFIG_BK_WSS_TRANS || CONFIG_BK_WSS_TRANS_NOPSRAM))
 #include "bk_wss/bk_wss_private.h"
 #endif
@@ -180,13 +183,20 @@ static void handle_system_event(key_event_t event)
                 image_recognition_mode_enable = !image_recognition_mode_enable;
                 BK_LOGW(TAG, "image_recognition_mode_enable=%d\n", image_recognition_mode_enable);
                 app_event_send_msg(APP_EVT_IR_MODE_SWITCH, image_recognition_mode_enable);
-            }
-#if 0
-            BK_LOGW(TAG, "trigger factory config reset\r\n");
-            //bk_bluetooth_deinit(); //no need close bluetooth
-            bk_factory_reset();
-            bk_reboot();
+            } else {
+#if CONFIG_SENTINO_IOT
+                /* Wipe provisioning + WiFi auto-reconnect; preserve device triple
+                 * (matches reference firmware's Rino_Manual_Reset_Process). */
+                BK_LOGW(TAG, "FACTORY_RESET: clearing provisioning, preserving triple\r\n");
+                sentino_provision_info_clear();
+                app_event_send_msg(APP_EVT_CONVOAI_EXIT, 0);
+                bk_sconf_start_to_config_network();
+#else
+                BK_LOGW(TAG, "trigger factory config reset\r\n");
+                bk_factory_reset();
+                bk_reboot();
 #endif
+            }
             break;
 #if CONFIG_BK_WSS_TRANS_NOPSRAM
         case AUDIO_BUF_APPEND:

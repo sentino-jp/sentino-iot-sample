@@ -361,8 +361,10 @@ int sentino_mqtt_connect(void)
         return 0;
     }
 
-    /* Compute HMAC-SHA256 password */
-    uint64_t ts = (uint64_t)rtos_get_time() / 1000; /* seconds */
+    /* Compute HMAC-SHA256 password. ts=0 literal matches reference firmware
+     * (rino_mqtt_app.c) — backend doesn't validate ts as freshness; uptime
+     * gave no real replay protection anyway. */
+    const uint64_t ts = 0;
     char password[65] = {0};
     if (0 != compute_mqtt_password(s_mqtt.uuid, s_mqtt.key, ts, password, sizeof(password))) {
         LOGE("compute password failed");
@@ -373,7 +375,7 @@ int sentino_mqtt_connect(void)
     char client_id[128] = {0};
     snprintf(client_id, sizeof(client_id), "rlink_%s_V2", s_mqtt.uuid);
 
-    /* Build username: uuid|signMethod=hmacSha256,ts=<timestamp> */
+    /* Build username: uuid|signMethod=hmacSha256,ts=0 */
     char username[256] = {0};
     snprintf(username, sizeof(username), "%s|signMethod=hmacSha256,ts=%llu",
              s_mqtt.uuid, (unsigned long long)ts);
@@ -650,4 +652,11 @@ void sentino_provision_info_write(const sentino_provision_info_t *info)
 void sentino_provision_info_read(sentino_provision_info_t *info)
 {
     bk_get_env_enhance(NVS_KEY_PROV_INFO, info, sizeof(sentino_provision_info_t));
+}
+
+void sentino_provision_info_clear(void)
+{
+    sentino_provision_info_t zero = {0};
+    bk_set_env_enhance(NVS_KEY_PROV_INFO, &zero, sizeof(zero));
+    LOGW("provisioning info cleared");
 }

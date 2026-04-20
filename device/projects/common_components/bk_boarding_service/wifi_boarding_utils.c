@@ -19,6 +19,7 @@
 #include "components/bk_uid.h"
 #if CONFIG_SENTINO_IOT
 #include "sentino_mqtt.h"
+#include "sentino_dev_info.h"
 #include "sentino_ble_v1.h"
 #include "cJSON.h"
 #else
@@ -1508,7 +1509,22 @@ int wifi_boarding_adv_start(void)
             uint8_t ble_mac[6] = {0};
             bk_get_mac(ble_mac, MAC_TYPE_BLUETOOTH);
 
-            const char *dev_uuid = SENTINO_MOCK_UUID;
+            /* Sentino UUID = device triple. Lazy-load on first call (BLE adv
+             * starts before engine init). Falls back to "" if UNAUTHORIZED. */
+            if (sentino_dev_info_get_state() != SENTINO_DEV_AUTHORIZED) {
+#ifdef SENTINO_TRIPLE_TEST
+                sentino_triple_t test = {0};
+                strncpy(test.Uuid,   SENTINO_TEST_UUID,   sizeof(test.Uuid)   - 1);
+                strncpy(test.Secret, SENTINO_TEST_SECRET, sizeof(test.Secret) - 1);
+                strncpy(test.Mac,    SENTINO_TEST_MAC,    sizeof(test.Mac)    - 1);
+                strncpy(test.Pid,    SENTINO_TEST_PID,    sizeof(test.Pid)    - 1);
+                sentino_dev_info_load(SENTINO_DEFAULT_PID, &test);
+#else
+                sentino_dev_info_load(SENTINO_DEFAULT_PID, NULL);
+#endif
+            }
+            const sentino_triple_t *t = sentino_dev_info_get_triple();
+            const char *dev_uuid = t ? t->Uuid : "";
             uint8_t uuid_len = strlen(dev_uuid);
 
             sr_len_index = sr_index;

@@ -68,6 +68,12 @@ static const uint32_t s_user_value2 = 10;
 #if CONFIG_NET_PAN
 static const bt_user_storage_t s_bt_factory_storage ={0};
 #endif
+/* Note: d_stn_prov and d_stn_triple are NOT registered here.
+ * factory_config_t's size fields are uint8_t (max 255) — both records exceed
+ * that. Wiping d_stn_prov on FACTORY_RESET is handled explicitly by
+ * sentino_provision_info_clear() in key_app_service.c, and d_stn_triple is
+ * intentionally preserved across resets. Both are read/written directly via
+ * bk_*_env_enhance, no registration required. */
 const struct factory_config_t s_user_config[] = {
     {"user_key1", (void *)"user_value1", 11, BK_FALSE, 0},
     {"user_key2", (void *)&s_user_value2, 4, BK_TRUE, 4},
