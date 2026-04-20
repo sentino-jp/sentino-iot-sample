@@ -8,9 +8,9 @@ const PUBLIC_HEADERS = {
   data_center_code: 'cn',
   client_id: 'Y2V0dXMtaW90LWFwcDpvbEFESkNtV2xGSVZYWTFxMWx4MHdVclViemU3WHdlUg==',
   encrypt_type: 'AES/ECB/PKCS5Padding',
-  channel_identifier: 'gk6853gq',
+  channel_identifier: 'kfvb4s5e',
   package_name: 'jp.sentino.general',
-  app_id: 'krfjnsim9vs7yd',
+  app_id: 'krkfvb4s5e91hq',
 };
 
 const BASIC_AUTH = 'Basic Y2V0dXMtaW90LWFwcDpvbEFESkNtV2xGSVZYWTFxMWx4MHdVclViemU3WHdlUg==';
@@ -45,7 +45,7 @@ export async function login(uid, password) {
   });
 
   const res = await fetch(
-    `${BASE}/auth/oauth/token?grant_type=uid&area_code=86&app_id=krfjnsim9vs7yd`,
+    `${BASE}/auth/oauth/token?grant_type=uid&area_code=86&app_id=krkfvb4s5e91hq`,
     {
       method: 'POST',
       headers: {

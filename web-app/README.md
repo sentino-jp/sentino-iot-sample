@@ -46,8 +46,8 @@ web-app/
 
 | 配置项 | 值 | 来源 |
 |--------|-----|------|
-| `app_id` | `krfjnsim9vs7yd` | App 开发页面 |
-| `channel_identifier` | `gk6853gq` | App 开发页面 |
+| `app_id` | `krkfvb4s5e91hq` | App 开发页面 |
+| `channel_identifier` | `kfvb4s5e` | App 开发页面 |
 | `package_name` | `jp.sentino.general` | App 开发页面 |
 | `data_center_code` | `cn` | App 开发页面 |
 | `client_id` (Base64) | `Y2V0dXMtaW90LWFwcDo...` | OAuth2 凭证（待沟通获取方式） |
