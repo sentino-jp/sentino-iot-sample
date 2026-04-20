@@ -21,13 +21,13 @@ extern "C" {
 
 /* Per-build product key. Reference firmware bakes PID into firmware
  * (rino_iot_process.c PRODUCT_KEY); Sentino does the same. */
-#define SENTINO_DEFAULT_PID         "vqB8C7fniWRLWL"
+#define SENTINO_DEFAULT_PID         "OQm9yRoaLq1gbK"
 
 #ifdef SENTINO_TRIPLE_TEST
 #define SENTINO_TEST_PID            SENTINO_DEFAULT_PID
-#define SENTINO_TEST_UUID           "ct01kQBXBK7h63H8"
-#define SENTINO_TEST_SECRET         "0c6ceda19a574413b92f0e1185f73c80"
-#define SENTINO_TEST_MAC            "444AD60C228F"
+#define SENTINO_TEST_UUID           "ct01VWfvv171KS7s"
+#define SENTINO_TEST_SECRET         "5b9b31365144429faa6f7aac3e76adf8"
+#define SENTINO_TEST_MAC            "444AD60EE392"
 #endif
 
 /* ────────────────────────────────────────────────────────────────────
@@ -95,6 +95,9 @@ int sentino_dev_info_save(void);
 
 /** Wipe the triple from both RAM and NVS. State becomes UNAUTHORIZED. */
 int sentino_dev_info_reset(void);
+
+/** Register CLI commands: set_triple / get_triple / reset_triple. */
+int sentino_dev_info_cli_init(void);
 
 #ifdef __cplusplus
 }

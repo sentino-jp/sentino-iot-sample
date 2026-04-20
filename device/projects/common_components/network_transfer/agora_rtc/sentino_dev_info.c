@@ -6,6 +6,7 @@
 
 #include <components/log.h>
 #include "bk_ef.h"
+#include "cli.h"
 #include "sentino_dev_info.h"
 
 #define TAG "sentino_dev"
@@ -128,4 +129,69 @@ int sentino_dev_info_reset(void)
     s_state = SENTINO_DEV_UNAUTHORIZED;
     LOGW("triple wiped");
     return ret;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  CLI: runtime triple read/write — avoids reflashing for triple swap.
+ *  Usage:
+ *    set_triple <uuid> <secret> <pid> <mac>
+ *    get_triple
+ *    reset_triple
+ * ──────────────────────────────────────────────────────────────────── */
+
+static void cli_set_triple(char *buf, int buf_len, int argc, char **argv)
+{
+    if (argc != 5) {
+        LOGE("usage: set_triple <uuid> <secret> <pid> <mac>");
+        return;
+    }
+    sentino_dev_triple_record_t r;
+    memset(&r, 0, sizeof(r));
+    r.magic      = SENTINO_TRIPLE_MAGIC;
+    r.flag_valid = SENTINO_TRIPLE_FLAG_VALID;
+    strncpy(r.triple.Uuid,   argv[1], SENTINO_UUID_SIZE    - 1);
+    strncpy(r.triple.Secret, argv[2], SENTINO_KEY_SIZE     - 1);
+    strncpy(r.triple.Pid,    argv[3], SENTINO_PID_SIZE     - 1);
+    strncpy(r.triple.Mac,    argv[4], SENTINO_MAC_STR_SIZE - 1);
+
+    int ret = write_to_flash(&r);
+    if (ret == 0) {
+        s_record = r;
+        s_state  = SENTINO_DEV_AUTHORIZED;
+        s_loaded = true;
+        LOGW("triple written: uuid=%s pid=%s — reboot to take effect",
+             r.triple.Uuid, r.triple.Pid);
+    } else {
+        LOGE("write_to_flash failed: %d", ret);
+    }
+}
+
+static void cli_get_triple(char *buf, int buf_len, int argc, char **argv)
+{
+    if (!s_loaded || s_state != SENTINO_DEV_AUTHORIZED) {
+        LOGW("no triple loaded (state=%d)", s_state);
+        return;
+    }
+    LOGW("uuid  =%s", s_record.triple.Uuid);
+    LOGW("secret=%s", s_record.triple.Secret);
+    LOGW("pid   =%s", s_record.triple.Pid);
+    LOGW("mac   =%s", s_record.triple.Mac);
+}
+
+static void cli_reset_triple(char *buf, int buf_len, int argc, char **argv)
+{
+    int ret = sentino_dev_info_reset();
+    LOGW("reset_triple ret=%d", ret);
+}
+
+static const struct cli_command s_triple_cmds[] = {
+    {"set_triple",   "<uuid> <secret> <pid> <mac>", cli_set_triple},
+    {"get_triple",   "print loaded triple",         cli_get_triple},
+    {"reset_triple", "wipe triple from NVS",        cli_reset_triple},
+};
+
+int sentino_dev_info_cli_init(void)
+{
+    return cli_register_commands(s_triple_cmds,
+                                 sizeof(s_triple_cmds) / sizeof(s_triple_cmds[0]));
 }
