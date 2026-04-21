@@ -25,8 +25,10 @@
 #endif
 #include "app_event.h"
 #include "bk_factory_config.h"
-#include "sentino_mqtt.h"
-#include "sentino_dev_info.h"
+#if CONFIG_SENTINO_IOT
+#include "sentino_iot/sentino_mqtt.h"
+#include "sentino_iot/sentino_dev_info.h"
+#endif
 #include "pan_user_config.h"
 
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -210,6 +212,7 @@ static void bk_genie_message_handle(void)
                         bk_genie_boarding_info_t *bk_genie_boarding_info = bk_genie_get_boarding_info();
                         bk_genie_wifi_sta_connect(bk_genie_boarding_info->boarding_info.ssid_value, bk_genie_boarding_info->boarding_info.password_value);
 
+#if CONFIG_SENTINO_IOT
                         /* Sentino: persist userId, assetId, mqttUrl from BLE provisioning.
                          * BLE fields are repurposed: auth_token_first_half → userId,
                          * auth_token_second_half → assetId, agora_convoai_server_url → mqttUrl */
@@ -225,6 +228,7 @@ static void bk_genie_message_handle(void)
                             LOGE("sentino userId=%s, assetId=%s, broker=%s\n", prov.user_id, prov.asset_id, prov.mqtt_broker);
                             sentino_provision_info_write(&prov);
                         }
+#endif
 
                         bk_event_unregister_cb(EVENT_MOD_WIFI, EVENT_WIFI_SCAN_DONE, bk_genie_wlan_scan_done_handler);
 			} else {
@@ -243,6 +247,7 @@ static void bk_genie_message_handle(void)
                 case DBEVT_AGORA_DEVICE_ID_REQUEST:
                 {
                     LOGI("DBEVT_AGORA_DEVICE_ID_REQUEST\n");
+#if CONFIG_SENTINO_IOT
                     /* Sentino UUID = device triple (NVS-backed). Load now if engine
                      * init hasn't run yet (BLE provisioning happens before init). */
                     if (sentino_dev_info_get_state() != SENTINO_DEV_AUTHORIZED) {
@@ -261,6 +266,7 @@ static void bk_genie_message_handle(void)
                     const char *dev_uuid = t ? t->Uuid : "";
                     LOGI("device uuid=%s\n", dev_uuid);
                     bk_genie_boarding_event_notify_with_data(BOARDING_OP_GET_DEVICE_ID, BK_OK, (char *)dev_uuid, strlen(dev_uuid));
+#endif
                 }
                 break;
 
@@ -309,6 +315,7 @@ static void bk_genie_message_handle(void)
                     int status = 1;
 
                     bk_genie_boarding_info_t *bk_genie_boarding_info = bk_genie_get_boarding_info();
+#if CONFIG_SENTINO_IOT
                     {
                         sentino_provision_info_t prov = {0};
                         if (bk_genie_boarding_info->boarding_info.auth_token_first_half)
@@ -320,6 +327,7 @@ static void bk_genie_message_handle(void)
                         prov.mqtt_port = 1883;
                         sentino_provision_info_write(&prov);
                     }
+#endif
 #if CONFIG_NET_PAN
                     bk_bt_enter_pairing_mode(1);
                     status = 0;
@@ -355,7 +363,9 @@ static void bk_genie_message_handle(void)
                     LOGI("DBEVT_NFC_GOT_ID: [%02x:%02x:%02x:%02x:%02x:%02x:%02x]\r\n", nfc_id[0], nfc_id[1], nfc_id[2],\
                     nfc_id[3], nfc_id[4], nfc_id[5], nfc_id[6]);
 
+#if CONFIG_SENTINO_IOT
                     bk_sconf_post_nfc_id(nfc_id);
+#endif
                 }
                 break;
 

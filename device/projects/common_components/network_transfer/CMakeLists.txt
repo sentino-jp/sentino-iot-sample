@@ -19,10 +19,18 @@ list(APPEND srcs
 	agora_rtc/agora_rtc_main.c
 	agora_rtc/agora_rtc.c
 )
+endif()
 
-list(APPEND srcs agora_rtc/sentino_mqtt.c)
-list(APPEND srcs agora_rtc/sentino_dev_info.c)
+if (CONFIG_SENTINO_IOT)
+list(APPEND incs
+            sentino_iot
+)
 
+list(APPEND srcs
+	sentino_iot/sentino_mqtt.c
+	sentino_iot/sentino_dev_info.c
+	sentino_iot/sentino_iot_engine.c
+)
 endif()
 
 if (CONFIG_BK_WSS_TRANS)

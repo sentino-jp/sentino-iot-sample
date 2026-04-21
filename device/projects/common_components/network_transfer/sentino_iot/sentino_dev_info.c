@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include <components/log.h>
+#include <components/system.h>
 #include "bk_ef.h"
 #include "cli.h"
 #include "sentino_dev_info.h"
@@ -67,19 +68,20 @@ int sentino_dev_info_load(const char *pid_default,
         LOGW("no valid triple in flash");
     }
 
-    /* If a test triple is supplied and differs from flash, overwrite. */
-    if (test_triple) {
-        if (!flash_valid || !triples_equal(&s_record.triple, test_triple)) {
-            LOGW("seeding flash from test_triple: uuid=%s", test_triple->Uuid);
-            s_record.magic       = SENTINO_TRIPLE_MAGIC;
-            s_record.flag_valid  = SENTINO_TRIPLE_FLAG_VALID;
-            s_record.triple      = *test_triple;
-            memset(s_record.reserve, 0, sizeof(s_record.reserve));
-            if (0 != write_to_flash(&s_record)) {
-                LOGE("write test_triple to flash failed");
-            }
-            flash_valid = true;
+    /* test_triple is a FALLBACK only — used when flash is empty/invalid.
+     * Once flash has a valid record (from set_triple CLI, factory burn,
+     * or a previous test seed), respect it. Otherwise set_triple writes
+     * would be silently undone on every reboot. */
+    if (test_triple && !flash_valid) {
+        LOGW("seeding flash from test_triple: uuid=%s", test_triple->Uuid);
+        s_record.magic       = SENTINO_TRIPLE_MAGIC;
+        s_record.flag_valid  = SENTINO_TRIPLE_FLAG_VALID;
+        s_record.triple      = *test_triple;
+        memset(s_record.reserve, 0, sizeof(s_record.reserve));
+        if (0 != write_to_flash(&s_record)) {
+            LOGE("write test_triple to flash failed");
         }
+        flash_valid = true;
     }
 
     /* Backfill PID from default if older record didn't carry one. */
@@ -184,10 +186,17 @@ static void cli_reset_triple(char *buf, int buf_len, int argc, char **argv)
     LOGW("reset_triple ret=%d", ret);
 }
 
+static void cli_reboot(char *buf, int buf_len, int argc, char **argv)
+{
+    LOGW("reboot requested via CLI");
+    bk_reboot();
+}
+
 static const struct cli_command s_triple_cmds[] = {
     {"set_triple",   "<uuid> <secret> <pid> <mac>", cli_set_triple},
     {"get_triple",   "print loaded triple",         cli_get_triple},
     {"reset_triple", "wipe triple from NVS",        cli_reset_triple},
+    {"reboot",       "soft reboot the device",      cli_reboot},
 };
 
 int sentino_dev_info_cli_init(void)

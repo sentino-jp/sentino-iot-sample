@@ -5,11 +5,10 @@
 #include "bk_smart_config_sentino_adapter.h"
 #include "bk_smart_config.h"
 #include "app_event.h"
-#include "sentino_mqtt.h"
+#include "sentino_iot/sentino_mqtt.h"
+#include "sentino_iot/sentino_iot_engine.h"
 
 #define TAG "bk_sconf_sentino"
-
-extern void sentino_convoai_engine_stop(void);
 
 int bk_sconf_post_nfc_id(uint8_t *nfc_id)
 {
@@ -21,7 +20,7 @@ int bk_sconf_post_nfc_id(uint8_t *nfc_id)
 
 void bk_sconf_trans_stop(void)
 {
-    sentino_convoai_engine_stop();
+    sentino_iot_engine_stop();
     /* Don't call sentino_mqtt_disconnect() here — IOT_MQTT_Destroy() has an
      * internal recv-thread teardown bug that asserts on queue send.
      * WiFi is stopped right after this call (bk_wifi_sta_stop), which kills

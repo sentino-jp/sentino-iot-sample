@@ -7,7 +7,7 @@ list(APPEND srcs
     src/core/bk_smart_config_core.c
 )
 
-if (CONFIG_AGORA_IOT_SDK)
+if (CONFIG_SENTINO_IOT)
 list(APPEND srcs
 	src/adapter/sentino/bk_smart_config_sentino_adapter.c
 )

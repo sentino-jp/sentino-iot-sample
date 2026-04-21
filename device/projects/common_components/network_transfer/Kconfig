@@ -1,4 +1,14 @@
 menu "net_transfer"
+	config SENTINO_IOT
+		bool "Enable Sentino IoT control plane (MQTT signalling + triple NVS)"
+		default n
+		help
+			Pulls in the Sentino MQTT signalling layer, three-tuple NVS
+			persistence, and the sentino_iot_engine that bridges MQTT-issued
+			session params to the active RTC backend (Agora today, Volc
+			planned). Independent of CONFIG_AGORA_IOT_SDK so future builds
+			can pair Sentino with another RTC backend.
+
 	config BK_WSS_TRANS
 		bool "Enable Beken Websocket Transmit for AI"
 		default n

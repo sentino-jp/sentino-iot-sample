@@ -23,8 +23,8 @@
 #include <common/bk_include.h>
 #include "components/bluetooth/bk_dm_bluetooth.h"
 #include "app_main.h"
-#if CONFIG_AGORA_IOT_SDK
-#include "sentino_mqtt.h"
+#if CONFIG_SENTINO_IOT
+#include "sentino_iot/sentino_mqtt.h"
 #endif
 #if (CONFIG_SYS_CPU0 && (CONFIG_BK_WSS_TRANS || CONFIG_BK_WSS_TRANS_NOPSRAM))
 #include "bk_wss/bk_wss_private.h"
@@ -184,7 +184,7 @@ static void handle_system_event(key_event_t event)
                 BK_LOGW(TAG, "image_recognition_mode_enable=%d\n", image_recognition_mode_enable);
                 app_event_send_msg(APP_EVT_IR_MODE_SWITCH, image_recognition_mode_enable);
             } else {
-#if CONFIG_AGORA_IOT_SDK
+#if CONFIG_SENTINO_IOT
                 /* Wipe provisioning + WiFi auto-reconnect; preserve device triple
                  * (matches reference firmware's Rino_Manual_Reset_Process). */
                 BK_LOGW(TAG, "FACTORY_RESET: clearing provisioning, preserving triple\r\n");
