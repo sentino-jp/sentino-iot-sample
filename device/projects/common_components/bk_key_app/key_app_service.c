@@ -24,7 +24,7 @@
 #include "components/bluetooth/bk_dm_bluetooth.h"
 #include "app_main.h"
 #if CONFIG_SENTINO_IOT
-#include "sentino_iot/sentino_mqtt.h"
+#include "sentino_provision_import.h"
 #endif
 #if (CONFIG_SYS_CPU0 && (CONFIG_BK_WSS_TRANS || CONFIG_BK_WSS_TRANS_NOPSRAM))
 #include "bk_wss/bk_wss_private.h"
@@ -188,7 +188,7 @@ static void handle_system_event(key_event_t event)
                 /* Wipe provisioning + WiFi auto-reconnect; preserve device triple
                  * (matches reference firmware's Rino_Manual_Reset_Process). */
                 BK_LOGW(TAG, "FACTORY_RESET: clearing provisioning, preserving triple\r\n");
-                sentino_provision_info_clear();
+                sentino_provision_clear();
                 app_event_send_msg(APP_EVT_CONVOAI_EXIT, 0);
                 bk_sconf_start_to_config_network();
 #endif

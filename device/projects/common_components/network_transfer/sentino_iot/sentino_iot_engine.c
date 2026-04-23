@@ -7,22 +7,23 @@
 #include "sentino_dev_info.h"
 
 #include "app_event.h"
-#include "agora_config.h"   /* AGORA_CONVOAI_APP_VERSION */
-
-#if CONFIG_AGORA_IOT_SDK
-#include "agora_rtc_main.h" /* agora_start/stop, agora_rtc_option, agora_channel_name */
-#else
-#error "sentino_iot currently requires an RTC backend (CONFIG_AGORA_IOT_SDK)."
-#endif
+#include "agora_config.h"   /* AGORA_CONVOAI_APP_VERSION — bind/info version string.
+                             * Header is misnamed (lives under agora_rtc/) but the
+                             * value is just a firmware version. Move to
+                             * sentino_iot_common.h in a later phase. */
 
 #define TAG "sentino_iot"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 
-static sentino_rtc_params_t          s_sentino_rtc_params;
-static agora_convoai_configs_resp_t  s_sentino_configs;
-static bool                          s_sentino_started = false;
+static sentino_rtc_params_t       s_sentino_rtc_params;
+static bool                       s_sentino_started = false;
+static sentino_rtc_handoff_cb_t   s_rtc_handoff = NULL;
+static sentino_rtc_release_cb_t   s_rtc_release = NULL;
+
+void sentino_register_rtc_handoff(sentino_rtc_handoff_cb_t cb) { s_rtc_handoff = cb; }
+void sentino_register_rtc_release(sentino_rtc_release_cb_t cb) { s_rtc_release = cb; }
 
 static void sentino_issue_handler(const char *code, const char *payload_json)
 {
@@ -48,7 +49,9 @@ void sentino_iot_init(void)
 void sentino_iot_engine_init(void)
 {
     /* Step 1: load device triple (NVS-backed). In TEST builds the seed
-     * triple from sentino_dev_info.h is auto-written if flash is empty. */
+     * triple from sentino_dev_info.h is auto-written if flash is empty.
+     * Boarding may have already loaded it via
+     * sentino_provision_ensure_loaded(); this call is idempotent. */
 #ifdef SENTINO_TRIPLE_TEST
     sentino_triple_t test = {0};
     strncpy(test.Uuid,   SENTINO_TEST_UUID,   sizeof(test.Uuid)   - 1);
@@ -106,6 +109,12 @@ void sentino_iot_engine_start(void)
         return;
     }
 
+    if (!s_rtc_handoff) {
+        LOGE("no RTC backend registered — call sentino_interface_init() at boot\n");
+        app_event_send_msg(APP_EVT_AGENT_START_FAIL, 0);
+        return;
+    }
+
     memset(&s_sentino_rtc_params, 0, sizeof(s_sentino_rtc_params));
     if (0 != sentino_mqtt_request_rtc_access(&s_sentino_rtc_params)) {
         LOGE("sentino RTC access request failed\n");
@@ -113,31 +122,22 @@ void sentino_iot_engine_start(void)
         return;
     }
 
-    /* Hand the cloud-issued session over to the active RTC backend. */
-    memset(&s_sentino_configs, 0, sizeof(s_sentino_configs));
-    snprintf(s_sentino_configs.app_id, sizeof(s_sentino_configs.app_id),
-             "%s", s_sentino_rtc_params.app_id);
-    snprintf(s_sentino_configs.rtc_token, sizeof(s_sentino_configs.rtc_token),
-             "%s", s_sentino_rtc_params.rtc_token);
-    s_sentino_configs.token_enable =
-        (s_sentino_configs.rtc_token[0] != '\0' &&
-         0 != strcmp(s_sentino_configs.app_id, s_sentino_configs.rtc_token));
-
-    snprintf(agora_channel_name, sizeof(agora_channel_name),
-             "%s", s_sentino_rtc_params.channel_name);
-    agora_rtc_option.uid = s_sentino_rtc_params.uid;
-
     LOGI("sentino starting RTC: appid=%s, channel=%s, uid=%u\n",
-         s_sentino_configs.app_id, agora_channel_name, s_sentino_rtc_params.uid);
+         s_sentino_rtc_params.app_id, s_sentino_rtc_params.channel_name,
+         s_sentino_rtc_params.uid);
 
-    agora_start(&s_sentino_configs);
+    if (0 != s_rtc_handoff(&s_sentino_rtc_params)) {
+        LOGE("sentino RTC handoff failed\n");
+        app_event_send_msg(APP_EVT_AGENT_START_FAIL, 0);
+        return;
+    }
 
     s_sentino_started = true;
 }
 
 void sentino_iot_engine_stop(void)
 {
-    agora_stop();
+    if (s_rtc_release) s_rtc_release();
     s_sentino_started = false;
     LOGI("sentino engine stopped\n");
 }

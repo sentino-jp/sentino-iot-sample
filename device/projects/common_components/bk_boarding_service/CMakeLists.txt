@@ -12,4 +12,4 @@ list(APPEND srcs
 endif()
 endif()
 
-armino_component_register(SRCS "${srcs}" INCLUDE_DIRS "${incs}" PRIV_REQUIRES bk_smart_config bk_bt json bk_app_event bk_factory_config agora-iot-sdk main network_transfer VolcEngineRTCLite)
+armino_component_register(SRCS "${srcs}" INCLUDE_DIRS "${incs}" PRIV_REQUIRES bk_smart_config bk_bt json bk_app_event bk_factory_config agora-iot-sdk main network_transfer sentino_interface VolcEngineRTCLite)

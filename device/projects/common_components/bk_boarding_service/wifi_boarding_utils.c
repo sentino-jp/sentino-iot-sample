@@ -18,8 +18,7 @@
 #include "components/bluetooth/bk_dm_gatts.h"
 #include "components/bk_uid.h"
 #if CONFIG_SENTINO_IOT
-#include "sentino_iot/sentino_mqtt.h"
-#include "sentino_iot/sentino_dev_info.h"
+#include "sentino_provision_import.h"
 #endif
 #include "sentino_ble_v1.h"
 #include "cJSON.h"
@@ -213,7 +212,7 @@ static void sentino_v1_handle_message(const char *json_str)
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "type", "device.information.get.response");
         cJSON *data = cJSON_AddObjectToObject(resp, "data");
-        cJSON_AddStringToObject(data, "pid", SENTINO_DEFAULT_PID);
+        cJSON_AddStringToObject(data, "pid", sentino_provision_get_pid());
         cJSON_AddStringToObject(data, "version", "1.0.3");
         cJSON_AddBoolToObject(data, "bind", false);
 
@@ -1050,7 +1049,7 @@ int wifi_boarding_adv_start(void)
 
     /* Service Data (AD type 0x16): UUID(2B) + Flag(1B) + PID = variable */
     {
-        const char *pid_str = SENTINO_DEFAULT_PID;
+        const char *pid_str = sentino_provision_get_pid();
         uint8_t pid_len = strlen(pid_str);
 
         len_index = adv_index;
@@ -1104,22 +1103,9 @@ int wifi_boarding_adv_start(void)
 
             const char *dev_uuid = "";
 #if CONFIG_SENTINO_IOT
-            /* Sentino UUID = device triple. Lazy-load on first call (BLE adv
-             * starts before engine init). Falls back to "" if UNAUTHORIZED. */
-            if (sentino_dev_info_get_state() != SENTINO_DEV_AUTHORIZED) {
-#ifdef SENTINO_TRIPLE_TEST
-                sentino_triple_t test = {0};
-                strncpy(test.Uuid,   SENTINO_TEST_UUID,   sizeof(test.Uuid)   - 1);
-                strncpy(test.Secret, SENTINO_TEST_SECRET, sizeof(test.Secret) - 1);
-                strncpy(test.Mac,    SENTINO_TEST_MAC,    sizeof(test.Mac)    - 1);
-                strncpy(test.Pid,    SENTINO_TEST_PID,    sizeof(test.Pid)    - 1);
-                sentino_dev_info_load(SENTINO_DEFAULT_PID, &test);
-#else
-                sentino_dev_info_load(SENTINO_DEFAULT_PID, NULL);
-#endif
-            }
-            const sentino_triple_t *t = sentino_dev_info_get_triple();
-            if (t) dev_uuid = t->Uuid;
+            /* Sentino UUID = device triple. Adapter lazy-loads on first call
+             * (BLE adv starts before engine init); returns "" if UNAUTHORIZED. */
+            dev_uuid = sentino_provision_get_uuid();
 #endif
             uint8_t uuid_len = strlen(dev_uuid);
 

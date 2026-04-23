@@ -23,6 +23,10 @@ extern int byte_rtc_cli_init(void);
 
 #if CONFIG_SENTINO_IOT
 #include "sentino_iot/sentino_iot_engine.h"
+/* Forward-decl to avoid pulling sentino_interface into network_transfer's
+ * REQUIRES (would create cycle: sentino_interface already requires
+ * network_transfer for SDK headers). */
+extern void sentino_interface_init(void);
 #endif
 
 int network_transfer_init(void)
@@ -35,6 +39,7 @@ int network_transfer_init(void)
 
     #if CONFIG_SENTINO_IOT
     sentino_iot_init();
+    sentino_interface_init();   /* register RTC handoff callbacks */
     #endif
 
     return BK_OK;
