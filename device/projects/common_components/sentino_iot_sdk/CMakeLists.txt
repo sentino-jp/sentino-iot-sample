@@ -17,7 +17,7 @@
 # regardless of which subdir the header lives in.
 
 set(srcs)
-set(incs sentino_app sentino_mqtt sentino_ble)
+set(incs sentino_app sentino_mqtt sentino_ble sentino_http_ota sentino_factory)
 
 if (CONFIG_SENTINO_IOT)
 list(APPEND srcs
@@ -27,6 +27,8 @@ list(APPEND srcs
     sentino_mqtt/sentino_mqtt_dp.c
     sentino_mqtt/sentino_broker_ca.c
     sentino_ble/sentino_ble_v1.c
+    sentino_http_ota/sentino_ota.c
+    sentino_factory/sentino_dynamic_register.c
 )
 endif()
 

@@ -37,6 +37,7 @@ set(EXTRA_COMPONENTS_DIRS
     $ENV{ARMINO_PATH}/../../projects/common_components/network_transfer
     $ENV{ARMINO_PATH}/../../projects/common_components/sentino_iot_sdk
     $ENV{ARMINO_PATH}/../../projects/common_components/sentino_interface
+    $ENV{ARMINO_PATH}/../../projects/common_components/platform_adapter
     )
 
 include($ENV{ARMINO_PATH}/tools/build_tools/cmake/project.cmake)
