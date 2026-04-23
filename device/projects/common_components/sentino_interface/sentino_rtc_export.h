@@ -19,6 +19,11 @@ extern "C" {
  * sentino_iot_engine_start(). */
 void sentino_rtc_export_init(void);
 
+/* Stop the active RTC session (wraps sentino_iot_engine_stop). MQTT
+ * stays connected; only the audio data plane drops. Safe to call when
+ * no session is active. */
+void Sentino_Stop_Session_Export(void);
+
 #ifdef __cplusplus
 }
 #endif

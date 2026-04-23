@@ -46,3 +46,13 @@ void sentino_rtc_export_init(void)
     BK_LOGE(TAG, "no RTC backend compiled in — Sentino conversation will fail\n");
 #endif
 }
+
+void Sentino_Stop_Session_Export(void)
+{
+    sentino_iot_engine_stop();
+    /* Don't disconnect MQTT here — the WiFi-stop path drops the TCP and
+     * lets the mqtts reader exit naturally on the next read error. The
+     * old IOT_MQTT_Destroy bug (queue assert on teardown) was specific
+     * to the legacy ali_mqtt path; the mqtts client doesn't have it,
+     * but keeping behaviour the same on this seam is safer. */
+}

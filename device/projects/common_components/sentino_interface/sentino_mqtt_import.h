@@ -32,6 +32,12 @@ int  Sentino_Dp_Report_Export(const dp_obj_t *dp);
  * once (e.g. boot snapshot of switch+volume+battery). */
 int  Sentino_Dp_Report_Many_Export(const dp_obj_t *dps, size_t count);
 
+/* NFC card scan event — wraps sentino_mqtt_publish_nfc_report. nfc_id is
+ * the raw bytes from the card; only_report=1 means upload-only (no RTC
+ * session start), 0 means request RTC params (cloud replies with the
+ * same shape as agora_agent_device_access — see ref-mqtt §4.9). */
+int  Sentino_Nfc_Report_Export(const unsigned char *nfc_id, int len, int only_report);
+
 #ifdef __cplusplus
 }
 #endif

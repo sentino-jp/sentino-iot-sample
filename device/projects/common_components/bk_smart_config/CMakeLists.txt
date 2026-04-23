@@ -36,4 +36,4 @@ endif()
 
 armino_component_register(SRCS "${srcs}" INCLUDE_DIRS "${incs}"
     PRIV_REQUIRES bk_boarding_service mbedtls psa_mbedtls json bk_bt bk_factory_config bk_app_event multimedia
-                  network_transfer sentino_iot_sdk agora-iot-sdk video_engine audio_engine VolcEngineRTCLite)
+                  network_transfer sentino_interface agora-iot-sdk video_engine audio_engine VolcEngineRTCLite)

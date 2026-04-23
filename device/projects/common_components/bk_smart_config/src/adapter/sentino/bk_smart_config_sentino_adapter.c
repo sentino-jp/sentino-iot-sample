@@ -2,46 +2,44 @@
 #include <components/log.h>
 #include <string.h>
 #include <os/os.h>
+
 #include "bk_smart_config_sentino_adapter.h"
 #include "bk_smart_config.h"
 #include "app_event.h"
-#include "sentino_mqtt.h"
-#include "sentino_iot_engine.h"
+
+/* Route everything through the sentino_interface adapter — never include
+ * sentino_iot_sdk headers directly from outside the SDK. */
+#include "sentino_mqtt_import.h"   /* Sentino_Nfc_Report_Export */
+#include "sentino_rtc_export.h"    /* Sentino_Stop_Session_Export */
 
 #define TAG "bk_sconf_sentino"
 
 int bk_sconf_post_nfc_id(uint8_t *nfc_id)
 {
-    if (nfc_id) {
-        sentino_mqtt_publish_nfc_report(nfc_id, 8, 0);
-    }
-    return 0;
+    if (!nfc_id) return -1;
+    /* nfc_id is always 8 bytes per the NFC stack callback contract. */
+    return Sentino_Nfc_Report_Export(nfc_id, 8, 0);
 }
 
 void bk_sconf_trans_stop(void)
 {
-    sentino_iot_engine_stop();
-    /* Don't call sentino_mqtt_disconnect() here — IOT_MQTT_Destroy() has an
-     * internal recv-thread teardown bug that asserts on queue send.
-     * WiFi is stopped right after this call (bk_wifi_sta_stop), which kills
-     * the TCP connection and lets the MQTT recv thread exit naturally.
-     * MQTT will be re-initialized fresh on next WiFi connect. */
+    Sentino_Stop_Session_Export();
 }
 
 void agora_ir_mode_config(bool enable)
 {
-    /* Image recognition mode not yet supported with Sentino */
+    /* Image recognition mode not yet supported with Sentino. */
     BK_LOGW(TAG, "ir_mode_config: %d (not supported)\n", enable);
 }
 
 #if CONFIG_ENABLE_AGORA_DATASTREAM
-#include <os/os.h>
 beken_queue_t datastream_queue = NULL;
 
 int bk_sconf_init_datastream_resource(void)
 {
     /* Create the queue so RTC stream messages don't assert on NULL queue.
-     * Sentino uses its own message channel, so messages just accumulate and get dropped. */
+     * Sentino uses its own message channel, so messages just accumulate
+     * and get dropped. */
     if (!datastream_queue) {
         rtos_init_queue(&datastream_queue, "datastream_queue", sizeof(char *), 4);
     }
