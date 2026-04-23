@@ -7,8 +7,8 @@
 #include "cJSON.h"
 #include "bk_ef.h"
 #include "mbedtls/md.h"
-#include "iot_export_mqtt.h"
 #include "agora_config.h"
+#include "mqtts.h"
 #include "sentino_mqtt.h"
 
 #define TAG "sentino_mqtt"
@@ -21,43 +21,40 @@
 /* NVS keys for provisioning persistence */
 #define NVS_KEY_PROV_INFO       "d_stn_prov"
 
-/* MQTT buffer sizes */
-#define MQTT_WRITE_BUF_SIZE     2048
-#define MQTT_READ_BUF_SIZE      4096
-
 /* Timeout for RTC access request (ms) */
 #define RTC_ACCESS_TIMEOUT_MS   10000
 
-/* MQTT message ID counter */
+/* Pick TLS based on port. 8883 is standard mqtts; everything else (notably
+ * 1883) stays on plain TCP for backward compat with NVS-provisioned devices. */
+#define IS_TLS_PORT(p)          ((p) == 8883)
+
+/* MQTT message ID counter (for app-layer JSON id field, not MQTT packet id) */
 static uint32_t s_msg_id_counter = 0;
 
-/* MQTT client state */
+/* Sentino state */
 static struct {
-    void *handle;
+    mqtts_t *mq;
     char uuid[SENTINO_UUID_SIZE];
     char key[SENTINO_KEY_SIZE];
     char pid[SENTINO_PID_SIZE];
     char broker_url[SENTINO_BROKER_URL_SIZE];
     uint16_t port;
 
-    /* Topic strings (built from pid + uuid) */
+    char client_id[128];
+    char username[256];
+    char password[65];
+
     char topic_report[192];
     char topic_report_response[192];
     char topic_issue[192];
     char topic_issue_response[192];
 
-    /* MQTT buffers */
-    char *write_buf;
-    char *read_buf;
-
     /* RTC access request sync */
     beken_semaphore_t rtc_access_sem;
     sentino_rtc_params_t *rtc_access_result;
 
-    /* Issue handler */
     sentino_issue_handler_t issue_handler;
 
-    bool connected;
     bool initialized;
 } s_mqtt = {0};
 
@@ -88,18 +85,16 @@ static int compute_mqtt_password(const char *uuid, const char *key,
     mbedtls_md_hmac_finish(&ctx, hmac);
     mbedtls_md_free(&ctx);
 
-    /* Hex-encode the 32-byte HMAC to a 64-char string */
     if (out_len < 65) return -1;
     for (int i = 0; i < 32; i++) {
         snprintf(out_password + i * 2, 3, "%02x", hmac[i]);
     }
-
     return 0;
 }
 
 
 /* ────────────────────────────────────────────────────────────────────
- *  Unique message ID generator
+ *  Unique message ID generator (app-layer)
  * ──────────────────────────────────────────────────────────────────── */
 
 static void generate_msg_id(char *buf, size_t buf_size)
@@ -110,17 +105,11 @@ static void generate_msg_id(char *buf, size_t buf_size)
 
 
 /* ────────────────────────────────────────────────────────────────────
- *  MQTT callbacks
- *
- *  IOT_MQTT_Subscribe callback signature:
- *    void (*)(void *pcontext, void *pclient, iotx_mqtt_event_msg_pt msg)
- *  When event_type == IOTX_MQTT_EVENT_PUBLISH_RECVEIVED,
- *    msg->msg is iotx_mqtt_topic_info_pt with ptopic/payload/payload_len
+ *  Inbound payload handlers (unchanged from previous implementation)
  * ──────────────────────────────────────────────────────────────────── */
 
 static void handle_report_response_payload(const char *payload, int payload_len)
 {
-    /* Make null-terminated copy for cJSON */
     char *json_buf = psram_malloc(payload_len + 1);
     if (!json_buf) return;
     memcpy(json_buf, payload, payload_len);
@@ -141,7 +130,6 @@ static void handle_report_response_payload(const char *payload, int payload_len)
         return;
     }
 
-    /* Handle agora_agent_device_access response */
     if (0 == strcmp(code->valuestring, "agora_agent_device_access")) {
         cJSON *data = cJSON_GetObjectItem(root, "data");
         if (data && s_mqtt.rtc_access_result) {
@@ -169,14 +157,12 @@ static void handle_report_response_payload(const char *payload, int payload_len)
                 s_mqtt.rtc_access_result->uid = (uint32_t)uid->valueint;
             }
 
-            /* Signal the waiting thread */
             if (s_mqtt.rtc_access_sem) {
                 rtos_set_semaphore(&s_mqtt.rtc_access_sem);
             }
         }
     }
 
-    /* Handle bind response */
     if (0 == strcmp(code->valuestring, "bind")) {
         cJSON *res = cJSON_GetObjectItem(root, "res");
         if (res && (res->type & 0xFF) == cJSON_Number) {
@@ -209,7 +195,6 @@ static void handle_issue_payload(const char *payload, int payload_len)
         return;
     }
 
-    /* Dispatch to registered handler */
     if (s_mqtt.issue_handler) {
         char *payload_str = cJSON_PrintUnformatted(root);
         s_mqtt.issue_handler(code->valuestring, payload_str);
@@ -219,34 +204,43 @@ static void handle_issue_payload(const char *payload, int payload_len)
     cJSON_Delete(root);
 }
 
-/* IOT_MQTT_Subscribe callback — matches iotx_mqtt_event_handle_func_fpt */
-static void on_report_response(void *pcontext, void *pclient, iotx_mqtt_event_msg_pt msg)
+
+/* ────────────────────────────────────────────────────────────────────
+ *  mqtts message dispatch — route by topic prefix to the existing handlers
+ * ──────────────────────────────────────────────────────────────────── */
+
+static bool topic_equals(const char *t, size_t t_len, const char *ref)
 {
-    if (msg->event_type == IOTX_MQTT_EVENT_PUBLISH_RECVEIVED) {
-        iotx_mqtt_topic_info_pt topic_info = (iotx_mqtt_topic_info_pt)msg->msg;
-        handle_report_response_payload(topic_info->payload, topic_info->payload_len);
+    size_t rlen = strlen(ref);
+    return (t_len == rlen) && (0 == memcmp(t, ref, rlen));
+}
+
+static void on_mqtts_message(void *user, const char *topic, size_t topic_len,
+                             const uint8_t *payload, size_t payload_len)
+{
+    (void)user;
+    if (topic_equals(topic, topic_len, s_mqtt.topic_report_response)) {
+        handle_report_response_payload((const char *)payload, (int)payload_len);
+    } else if (topic_equals(topic, topic_len, s_mqtt.topic_issue)) {
+        handle_issue_payload((const char *)payload, (int)payload_len);
+    } else {
+        LOGW("unexpected topic (%.*s)", (int)topic_len, topic);
     }
 }
 
-/* IOT_MQTT_Subscribe callback — matches iotx_mqtt_event_handle_func_fpt */
-static void on_issue(void *pcontext, void *pclient, iotx_mqtt_event_msg_pt msg)
+static void on_mqtts_event(void *user, mqtts_event_t evt, int arg)
 {
-    if (msg->event_type == IOTX_MQTT_EVENT_PUBLISH_RECVEIVED) {
-        iotx_mqtt_topic_info_pt topic_info = (iotx_mqtt_topic_info_pt)msg->msg;
-        handle_issue_payload(topic_info->payload, topic_info->payload_len);
-    }
-}
-
-static void on_mqtt_event(void *pcontext, void *pclient, iotx_mqtt_event_msg_pt msg)
-{
-    switch (msg->event_type) {
-    case IOTX_MQTT_EVENT_DISCONNECT:
-        LOGW("MQTT disconnected");
-        s_mqtt.connected = false;
+    (void)user;
+    switch (evt) {
+    case MQTTS_EVT_CONNECTED:
+        LOGI("mqtts connected");
         break;
-    case IOTX_MQTT_EVENT_RECONNECT:
-        LOGI("MQTT reconnected");
-        s_mqtt.connected = true;
+    case MQTTS_EVT_DISCONNECTED:
+        LOGW("mqtts disconnected (reason=%d)", arg);
+        break;
+    case MQTTS_EVT_PUBLISH_FAILED:
+        LOGW("publish failed (qos=%d, code=%d) — message dropped",
+             (arg >> 16) & 0xff, arg & 0xff);
         break;
     default:
         break;
@@ -255,12 +249,12 @@ static void on_mqtt_event(void *pcontext, void *pclient, iotx_mqtt_event_msg_pt 
 
 
 /* ────────────────────────────────────────────────────────────────────
- *  Publish helper
+ *  Publish helper (build JSON → mqtts_publish)
  * ──────────────────────────────────────────────────────────────────── */
 
 static int publish_json(const char *topic, cJSON *root)
 {
-    if (!s_mqtt.handle) {
+    if (!s_mqtt.mq || !mqtts_is_connected(s_mqtt.mq)) {
         LOGE("MQTT not connected");
         return -1;
     }
@@ -271,40 +265,11 @@ static int publish_json(const char *topic, cJSON *root)
         return -1;
     }
 
-    iotx_mqtt_topic_info_t topic_msg;
-    memset(&topic_msg, 0, sizeof(topic_msg));
-    topic_msg.qos = IOTX_MQTT_QOS1;
-    topic_msg.payload = json_str;
-    topic_msg.payload_len = strlen(json_str);
-
     LOGI("PUB %s: %s", topic, json_str);
-    int ret = IOT_MQTT_Publish(s_mqtt.handle, topic, &topic_msg);
+    int ret = mqtts_publish(s_mqtt.mq, topic, json_str, strlen(json_str), 1);
     cJSON_free(json_str);
 
-    return (ret >= 0) ? 0 : -1;
-}
-
-
-/* ────────────────────────────────────────────────────────────────────
- *  MQTT yield task
- * ──────────────────────────────────────────────────────────────────── */
-
-static beken_thread_t s_yield_thread = NULL;
-static bool s_yield_running = false;
-static beken_semaphore_t s_yield_exit_sem = NULL;
-
-static void mqtt_yield_task(void *arg)
-{
-    while (s_yield_running && s_mqtt.handle) {
-        IOT_MQTT_Yield(s_mqtt.handle, 200);
-        rtos_delay_milliseconds(100);
-    }
-
-    s_yield_thread = NULL;
-    if (s_yield_exit_sem) {
-        rtos_set_semaphore(&s_yield_exit_sem);
-    }
-    rtos_delete_thread(NULL);
+    return ret;
 }
 
 
@@ -315,15 +280,10 @@ static void mqtt_yield_task(void *arg)
 int sentino_mqtt_init(const char *broker_url, uint16_t port,
                       const char *uuid, const char *key, const char *pid)
 {
-    if (s_mqtt.initialized) {
-        LOGI("already initialized, re-init");
-        /* Stop yield thread if still running, but don't call IOT_MQTT_Destroy */
-        s_yield_running = false;
-        if (s_yield_thread && s_yield_exit_sem) {
-            rtos_get_semaphore(&s_yield_exit_sem, 2000);
-        }
-        s_mqtt.handle = NULL;
-        s_mqtt.connected = false;
+    /* If a client already exists, tear it down first. */
+    if (s_mqtt.mq) {
+        mqtts_destroy(s_mqtt.mq);
+        s_mqtt.mq = NULL;
     }
 
     memset(&s_mqtt, 0, sizeof(s_mqtt));
@@ -333,7 +293,7 @@ int sentino_mqtt_init(const char *broker_url, uint16_t port,
     strncpy(s_mqtt.broker_url, broker_url, sizeof(s_mqtt.broker_url) - 1);
     s_mqtt.port = port;
 
-    /* Build topic strings: rlink/v2/${pid}/${uuid}/report etc. */
+    /* Build topic strings: rlink/v2/${pid}/${uuid}/{report,...} */
     snprintf(s_mqtt.topic_report, sizeof(s_mqtt.topic_report),
              "rlink/v2/%s/%s/report", pid, uuid);
     snprintf(s_mqtt.topic_report_response, sizeof(s_mqtt.topic_report_response),
@@ -356,143 +316,73 @@ int sentino_mqtt_connect(void)
         LOGE("not initialized");
         return -1;
     }
-    if (s_mqtt.handle) {
+    if (s_mqtt.mq && mqtts_is_connected(s_mqtt.mq)) {
         LOGI("already connected");
         return 0;
     }
 
-    /* Compute HMAC-SHA256 password. ts=0 literal matches reference firmware
-     * (rino_mqtt_app.c) — backend doesn't validate ts as freshness; uptime
-     * gave no real replay protection anyway. */
+    /* Auth: ts=0 matches reference firmware (rino_mqtt_app.c); backend doesn't
+     * validate freshness so uptime gave no real replay protection anyway. */
     const uint64_t ts = 0;
-    char password[65] = {0};
-    if (0 != compute_mqtt_password(s_mqtt.uuid, s_mqtt.key, ts, password, sizeof(password))) {
+    if (0 != compute_mqtt_password(s_mqtt.uuid, s_mqtt.key, ts,
+                                   s_mqtt.password, sizeof(s_mqtt.password))) {
         LOGE("compute password failed");
         return -1;
     }
-
-    /* Build client ID */
-    char client_id[128] = {0};
-    snprintf(client_id, sizeof(client_id), "rlink_%s_V2", s_mqtt.uuid);
-
-    /* Build username: uuid|signMethod=hmacSha256,ts=0 */
-    char username[256] = {0};
-    snprintf(username, sizeof(username), "%s|signMethod=hmacSha256,ts=%llu",
+    snprintf(s_mqtt.client_id, sizeof(s_mqtt.client_id), "rlink_%s_V2", s_mqtt.uuid);
+    snprintf(s_mqtt.username, sizeof(s_mqtt.username),
+             "%s|signMethod=hmacSha256,ts=%llu",
              s_mqtt.uuid, (unsigned long long)ts);
 
-    /* Allocate MQTT buffers from PSRAM */
-    s_mqtt.write_buf = psram_malloc(MQTT_WRITE_BUF_SIZE);
-    s_mqtt.read_buf = psram_malloc(MQTT_READ_BUF_SIZE);
-    if (!s_mqtt.write_buf || !s_mqtt.read_buf) {
-        LOGE("alloc MQTT buffers failed");
-        goto fail;
+    /* Build mqtts client. Pick TLS purely from port. Defaults cover keepalive,
+     * timeouts, buffer sizes, auto-reconnect (1s..60s backoff), PINGRESP
+     * liveness; we only override what's identity- or workload-specific. */
+    mqtts_config_t cfg     = MQTTS_CFG_DEFAULTS();
+    cfg.host               = s_mqtt.broker_url;
+    cfg.port               = s_mqtt.port;
+    cfg.client_id          = s_mqtt.client_id;
+    cfg.username           = s_mqtt.username;
+    cfg.password           = s_mqtt.password;
+    cfg.use_tls            = IS_TLS_PORT(s_mqtt.port);
+    cfg.max_subscriptions  = 4;   /* sentino uses 2; small to save RAM */
+
+    s_mqtt.mq = mqtts_create(&cfg);
+    if (!s_mqtt.mq) {
+        LOGE("mqtts_create failed");
+        return -1;
+    }
+    mqtts_set_message_cb(s_mqtt.mq, on_mqtts_message, NULL);
+    mqtts_set_event_cb(s_mqtt.mq, on_mqtts_event, NULL);
+
+    LOGI("connecting to %s:%u as %s (use_tls=%d)",
+         s_mqtt.broker_url, s_mqtt.port, s_mqtt.client_id, (int)cfg.use_tls);
+
+    if (mqtts_connect(s_mqtt.mq) != 0) {
+        LOGE("mqtts_connect failed");
+        mqtts_destroy(s_mqtt.mq);
+        s_mqtt.mq = NULL;
+        return -1;
     }
 
-    /* Build MQTT connection parameters */
-    iotx_mqtt_param_t mqtt_params;
-    memset(&mqtt_params, 0, sizeof(mqtt_params));
-    mqtt_params.port = s_mqtt.port;
-    mqtt_params.host = s_mqtt.broker_url;
-    mqtt_params.client_id = client_id;
-    mqtt_params.username = username;
-    mqtt_params.password = password;
-    mqtt_params.pub_key = NULL; /* TCP, no TLS for now */
-    mqtt_params.clean_session = 1;
-    mqtt_params.request_timeout_ms = 5000;
-    mqtt_params.keepalive_interval_ms = 60000;
-    mqtt_params.pwrite_buf = s_mqtt.write_buf;
-    mqtt_params.write_buf_size = MQTT_WRITE_BUF_SIZE;
-    mqtt_params.pread_buf = s_mqtt.read_buf;
-    mqtt_params.read_buf_size = MQTT_READ_BUF_SIZE;
-    mqtt_params.handle_event.h_fp = on_mqtt_event;
-    mqtt_params.handle_event.pcontext = NULL;
-
-    LOGI("connecting to %s:%u as %s", s_mqtt.broker_url, s_mqtt.port, client_id);
-
-    /* ali_mqtt requires device info to be initialized for random seed generation */
-    extern int iotx_device_info_init(void);
-    extern int iotx_device_info_set(const char *product_key, const char *device_name, const char *device_secret);
-    iotx_device_info_init();
-    iotx_device_info_set("sentino", s_mqtt.uuid, s_mqtt.key);
-
-    s_mqtt.handle = IOT_MQTT_Construct(&mqtt_params);
-    if (!s_mqtt.handle) {
-        LOGE("IOT_MQTT_Construct failed");
-        goto fail;
-    }
-
-    s_mqtt.connected = true;
-    LOGI("MQTT connected");
-
-    /* Subscribe to report_response and issue topics */
-    int ret;
-    ret = IOT_MQTT_Subscribe(s_mqtt.handle, s_mqtt.topic_report_response,
-                             IOTX_MQTT_QOS1, on_report_response, NULL);
-    if (ret < 0) {
-        LOGE("subscribe report_response failed");
-    } else {
-        LOGI("subscribed: %s", s_mqtt.topic_report_response);
-    }
-
-    ret = IOT_MQTT_Subscribe(s_mqtt.handle, s_mqtt.topic_issue,
-                             IOTX_MQTT_QOS1, on_issue, NULL);
-    if (ret < 0) {
-        LOGE("subscribe issue failed");
-    } else {
-        LOGI("subscribed: %s", s_mqtt.topic_issue);
-    }
-
-    /* Start yield task */
-    s_yield_running = true;
-    if (s_yield_exit_sem) { rtos_deinit_semaphore(&s_yield_exit_sem); s_yield_exit_sem = NULL; }
-    rtos_init_semaphore(&s_yield_exit_sem, 1);
-    bk_err_t err = rtos_create_thread(&s_yield_thread, 4, "mqtt_yield",
-                                       (beken_thread_function_t)mqtt_yield_task,
-                                       4 * 1024, NULL);
-    if (err != kNoErr) {
-        LOGE("create yield task failed");
-    }
-
+    /* Subscribe to inbound topics. */
+    mqtts_subscribe(s_mqtt.mq, s_mqtt.topic_report_response, 1);
+    mqtts_subscribe(s_mqtt.mq, s_mqtt.topic_issue, 1);
     return 0;
-
-fail:
-    if (s_mqtt.write_buf) { psram_free(s_mqtt.write_buf); s_mqtt.write_buf = NULL; }
-    if (s_mqtt.read_buf)  { psram_free(s_mqtt.read_buf);  s_mqtt.read_buf = NULL; }
-    return -1;
 }
 
 int sentino_mqtt_disconnect(void)
 {
-    /* Stop yield task and wait for it to exit */
-    s_yield_running = false;
-    if (s_yield_thread) {
-        if (!s_yield_exit_sem) {
-            rtos_init_semaphore(&s_yield_exit_sem, 1);
-        }
-        rtos_get_semaphore(&s_yield_exit_sem, 2000);
-        if (s_yield_exit_sem) {
-            rtos_deinit_semaphore(&s_yield_exit_sem);
-            s_yield_exit_sem = NULL;
-        }
+    if (s_mqtt.mq) {
+        mqtts_destroy(s_mqtt.mq);
+        s_mqtt.mq = NULL;
     }
-
-    /* Do NOT call IOT_MQTT_Destroy() here — its internal recv thread teardown
-     * triggers xQueueGenericSend assert when entering provisioning mode.
-     * Just null out the handle; the TCP connection dies when WiFi goes down.
-     * sentino_mqtt_init() will re-init cleanly on reconnect. */
-    s_mqtt.handle = NULL;
-    s_mqtt.connected = false;
-
-    /* Don't free buffers — they may still be referenced by the MQTT library's
-     * recv thread during async teardown. They will be re-allocated on next init. */
-
     LOGI("MQTT disconnected");
     return 0;
 }
 
 bool sentino_mqtt_is_connected(void)
 {
-    return s_mqtt.connected;
+    return s_mqtt.mq && mqtts_is_connected(s_mqtt.mq);
 }
 
 int sentino_mqtt_publish_bind(const char *user_id, const char *asset_id, const char *version)
@@ -540,7 +430,6 @@ int sentino_mqtt_request_rtc_access(sentino_rtc_params_t *out)
 
     memset(out, 0, sizeof(sentino_rtc_params_t));
 
-    /* Create semaphore for sync wait */
     if (s_mqtt.rtc_access_sem) {
         rtos_deinit_semaphore(&s_mqtt.rtc_access_sem);
         s_mqtt.rtc_access_sem = NULL;
@@ -553,7 +442,6 @@ int sentino_mqtt_request_rtc_access(sentino_rtc_params_t *out)
 
     s_mqtt.rtc_access_result = out;
 
-    /* Publish request */
     cJSON *root = cJSON_CreateObject();
     char msg_id[96];
     generate_msg_id(msg_id, sizeof(msg_id));
@@ -574,7 +462,6 @@ int sentino_mqtt_request_rtc_access(sentino_rtc_params_t *out)
         return -1;
     }
 
-    /* Wait for response */
     LOGI("waiting for RTC access response...");
     err = rtos_get_semaphore(&s_mqtt.rtc_access_sem, RTC_ACCESS_TIMEOUT_MS);
     s_mqtt.rtc_access_result = NULL;
@@ -597,7 +484,6 @@ int sentino_mqtt_publish_nfc_report(const uint8_t *nfc_id, int nfc_id_len, int o
     char msg_id[96];
     generate_msg_id(msg_id, sizeof(msg_id));
 
-    /* Hex-encode NFC ID */
     char nfc_hex[64] = {0};
     for (int i = 0; i < nfc_id_len && i < 30; i++) {
         snprintf(nfc_hex + i * 2, 3, "%02x", nfc_id[i]);
@@ -641,7 +527,7 @@ void sentino_mqtt_register_issue_handler(sentino_issue_handler_t handler)
 
 
 /* ────────────────────────────────────────────────────────────────────
- *  Provisioning info persistence
+ *  Provisioning info persistence (NVS)
  * ──────────────────────────────────────────────────────────────────── */
 
 void sentino_provision_info_write(const sentino_provision_info_t *info)

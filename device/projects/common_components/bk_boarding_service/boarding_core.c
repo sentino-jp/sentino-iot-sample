@@ -224,7 +224,7 @@ static void bk_genie_message_handle(void)
                                 strncpy(prov.asset_id, bk_genie_boarding_info->boarding_info.auth_token_second_half, sizeof(prov.asset_id) - 1);
                             if (bk_genie_boarding_info->boarding_info.agora_convoai_server_url)
                                 strncpy(prov.mqtt_broker, bk_genie_boarding_info->boarding_info.agora_convoai_server_url, sizeof(prov.mqtt_broker) - 1);
-                            prov.mqtt_port = 1883;
+                            prov.mqtt_port = 8883;  /* TLS by default; old NVS port=1883 still works (plain TCP) */
                             LOGE("sentino userId=%s, assetId=%s, broker=%s\n", prov.user_id, prov.asset_id, prov.mqtt_broker);
                             sentino_provision_info_write(&prov);
                         }
@@ -324,7 +324,7 @@ static void bk_genie_message_handle(void)
                             strncpy(prov.asset_id, bk_genie_boarding_info->boarding_info.auth_token_second_half, sizeof(prov.asset_id) - 1);
                         if (bk_genie_boarding_info->boarding_info.agora_convoai_server_url)
                             strncpy(prov.mqtt_broker, bk_genie_boarding_info->boarding_info.agora_convoai_server_url, sizeof(prov.mqtt_broker) - 1);
-                        prov.mqtt_port = 1883;
+                        prov.mqtt_port = 8883;  /* TLS by default; old NVS port=1883 still works (plain TCP) */
                         sentino_provision_info_write(&prov);
                     }
 #endif

@@ -3,3 +3,8 @@ __pycache__/
 node_modules/
 *.pyc
 plans/
+
+# secrets / credentials (private keys, broker certs from ops)
+client/
+*.pem
+*.key
