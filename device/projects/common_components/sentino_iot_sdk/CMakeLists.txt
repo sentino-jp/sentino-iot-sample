@@ -36,5 +36,5 @@ armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
     PRIV_REQUIRES bk_common bk_app_event lwip_intf_v2_1 mbedtls psa_mbedtls
-                  json bk_bt network_transfer ali_mqtt
+                  json bk_bt network_transfer ali_mqtt ota
 )
