@@ -4,6 +4,7 @@
 
 #include "sentino_iot_engine.h"
 #include "sentino_mqtt.h"
+#include "sentino_mqtt_dp.h"
 #include "sentino_dev_info.h"
 
 #include "app_event.h"
@@ -38,7 +39,7 @@ static void sentino_issue_handler(const char *code, const char *payload_json)
         LOGI("cloud OTA command\n");
         // TODO: parse OTA URL and trigger download
     } else if (0 == strcmp(code, "property_set")) {
-        LOGI("cloud property_set: %s\n", payload_json);
+        Sentino_Dp_Set_Parse(payload_json);
     }
 }
 

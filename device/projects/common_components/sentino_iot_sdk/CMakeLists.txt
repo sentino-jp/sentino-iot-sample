@@ -24,6 +24,7 @@ list(APPEND srcs
     sentino_app/sentino_dev_info.c
     sentino_app/sentino_iot_engine.c
     sentino_mqtt/sentino_mqtt.c
+    sentino_mqtt/sentino_mqtt_dp.c
     sentino_mqtt/sentino_broker_ca.c
     sentino_ble/sentino_ble_v1.c
 )

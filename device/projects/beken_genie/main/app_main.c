@@ -165,6 +165,9 @@ static void bk_wait_power_on(void)
 #endif
 
 extern int cli_ota_init(void);
+#if CONFIG_SENTINO_IOT
+#include "app_dp_handler.h"
+#endif
 void user_app_main(void)
 {
 #if (CONFIG_SYS_CPU0)
@@ -174,6 +177,11 @@ void user_app_main(void)
     audio_engine_init();
     voide_engine_init();
     network_transfer_init();
+#if CONFIG_SENTINO_IOT
+    /* DP set handler — must follow network_transfer_init (which calls
+     * sentino_interface_init that owns the SDK callback registry). */
+    app_dp_handler_init();
+#endif
     cli_ota_init();
 #endif
 
