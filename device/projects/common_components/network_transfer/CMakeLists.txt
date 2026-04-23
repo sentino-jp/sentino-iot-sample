@@ -22,18 +22,11 @@ list(APPEND srcs
 endif()
 
 if (CONFIG_SENTINO_IOT)
-list(APPEND incs
-            sentino_iot
-            mqtts
-)
-
-list(APPEND srcs
-	mqtts/mqtts.c
-	sentino_iot/sentino_mqtt.c
-	sentino_iot/sentino_dev_info.c
-	sentino_iot/sentino_iot_engine.c
-	sentino_iot/sentino_broker_ca.c
-)
+# Sentino IoT control plane (sentino_mqtt/dev_info/engine/broker_ca) moved
+# to its own top-level component sentino_iot_sdk/ in Phase 2 of the layering
+# refactor. mqtts/ stays here as a generic transport.
+list(APPEND incs mqtts)
+list(APPEND srcs mqtts/mqtts.c)
 endif()
 
 if (CONFIG_BK_WSS_TRANS)
@@ -82,3 +75,6 @@ armino_component_register(
                   VolcEngineRTCLite agora-iot-sdk video_engine audio_engine bk_app_event bk_factory_config LingXin_AI_IoT_VoiceChatEngine
                   ali_mqtt
 )
+# NOTE: sentino_iot_sdk is intentionally NOT in REQUIRES — it depends on this
+# component for mqtts.h, so adding it here would cycle. network_transfer.c
+# forward-declares sentino_iot_init() / sentino_interface_init() instead.

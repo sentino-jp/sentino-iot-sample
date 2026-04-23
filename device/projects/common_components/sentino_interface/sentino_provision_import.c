@@ -2,8 +2,8 @@
 #include <stdbool.h>
 
 #include "sentino_provision_import.h"
-#include "sentino_iot/sentino_mqtt.h"
-#include "sentino_iot/sentino_dev_info.h"
+#include "sentino_mqtt.h"
+#include "sentino_dev_info.h"
 
 static bool s_triple_loaded = false;
 

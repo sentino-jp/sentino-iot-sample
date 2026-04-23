@@ -22,10 +22,10 @@ extern int byte_rtc_cli_init(void);
 #endif
 
 #if CONFIG_SENTINO_IOT
-#include "sentino_iot/sentino_iot_engine.h"
-/* Forward-decl to avoid pulling sentino_interface into network_transfer's
- * REQUIRES (would create cycle: sentino_interface already requires
- * network_transfer for SDK headers). */
+/* Forward-decls to avoid REQUIRES cycle: sentino_iot_sdk depends on this
+ * component for mqtts.h, and sentino_interface depends on sentino_iot_sdk,
+ * so we can't pull either component back here. */
+extern void sentino_iot_init(void);
 extern void sentino_interface_init(void);
 #endif
 

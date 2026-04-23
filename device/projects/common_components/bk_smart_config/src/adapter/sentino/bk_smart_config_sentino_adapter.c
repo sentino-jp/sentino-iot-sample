@@ -5,8 +5,8 @@
 #include "bk_smart_config_sentino_adapter.h"
 #include "bk_smart_config.h"
 #include "app_event.h"
-#include "sentino_iot/sentino_mqtt.h"
-#include "sentino_iot/sentino_iot_engine.h"
+#include "sentino_mqtt.h"
+#include "sentino_iot_engine.h"
 
 #define TAG "bk_sconf_sentino"
 

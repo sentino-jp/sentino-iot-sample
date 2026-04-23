@@ -7,7 +7,6 @@
 #include "cJSON.h"
 #include "bk_ef.h"
 #include "mbedtls/md.h"
-#include "agora_config.h"
 #include "mqtts.h"
 #include "sentino_mqtt.h"
 #include "sentino_broker_ca.h"

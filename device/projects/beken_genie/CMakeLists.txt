@@ -35,6 +35,7 @@ set(EXTRA_COMPONENTS_DIRS
     $ENV{ARMINO_PATH}/../../projects/common_components/asr
     $ENV{ARMINO_PATH}/../../projects/common_components/dual_screen_avi_play
     $ENV{ARMINO_PATH}/../../projects/common_components/network_transfer
+    $ENV{ARMINO_PATH}/../../projects/common_components/sentino_iot_sdk
     $ENV{ARMINO_PATH}/../../projects/common_components/sentino_interface
     )
 

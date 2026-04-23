@@ -11,8 +11,8 @@ extern "C" {
  *
  * This is the ONLY header business code (boarding_core.c, key_app, etc.)
  * should include for Sentino provisioning. Direct includes of
- * sentino_iot/sentino_mqtt.h or sentino_dev_info.h from outside the SDK
- * defeat the layering.
+ * sentino_mqtt.h or sentino_dev_info.h from outside the SDK defeat
+ * the layering.
  */
 
 /* Persist provisioning fields received over BLE.

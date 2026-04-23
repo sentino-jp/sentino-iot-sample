@@ -12,5 +12,5 @@ endif()
 armino_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "${incs}"
-    PRIV_REQUIRES bk_common network_transfer agora-iot-sdk audio_engine main
+    PRIV_REQUIRES bk_common sentino_iot_sdk network_transfer agora-iot-sdk audio_engine main
 )

@@ -7,10 +7,11 @@
 #include "sentino_dev_info.h"
 
 #include "app_event.h"
-#include "agora_config.h"   /* AGORA_CONVOAI_APP_VERSION — bind/info version string.
-                             * Header is misnamed (lives under agora_rtc/) but the
-                             * value is just a firmware version. Move to
-                             * sentino_iot_common.h in a later phase. */
+
+/* Firmware version reported in MQTT bind/info messages. The Sentino SDK
+ * owns this — it must NOT reach into agora_rtc/agora_config.h. Bump on
+ * release; later phases will expose it via sentino_iot_common.h. */
+#define SENTINO_FW_VERSION  "1.0.3"
 
 #define TAG "sentino_iot"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
@@ -91,8 +92,8 @@ void sentino_iot_engine_init(void)
 
     sentino_mqtt_register_issue_handler(sentino_issue_handler);
 
-    sentino_mqtt_publish_bind(prov_info.user_id, prov_info.asset_id, AGORA_CONVOAI_APP_VERSION);
-    sentino_mqtt_publish_info(AGORA_CONVOAI_APP_VERSION, true);
+    sentino_mqtt_publish_bind(prov_info.user_id, prov_info.asset_id, SENTINO_FW_VERSION);
+    sentino_mqtt_publish_info(SENTINO_FW_VERSION, true);
 
     LOGI("sentino engine initialized\n");
 }

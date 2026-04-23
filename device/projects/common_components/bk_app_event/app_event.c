@@ -124,7 +124,7 @@ extern bk_err_t agora_stop(void);
 static app_evt_info_t app_evt_info;
 
 #if CONFIG_SENTINO_IOT
-#include "sentino_iot/sentino_iot_engine.h"
+#include "sentino_iot_engine.h"
 #endif
 
 bk_err_t app_event_send_msg(uint32_t event, uint32_t param)

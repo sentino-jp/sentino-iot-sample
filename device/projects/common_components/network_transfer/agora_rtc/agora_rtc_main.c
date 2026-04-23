@@ -447,9 +447,10 @@ fail:
 
     return BK_FAIL;
 }
-/* Sentino IoT control plane lives in network_transfer/sentino_iot/.
+/* Sentino IoT control plane lives in common_components/sentino_iot_sdk/.
  * That module owns MQTT signalling, triple/provisioning NVS, and CLI;
- * it calls agora_start()/agora_stop() declared in agora_rtc_main.h. */
+ * it invokes agora_start()/agora_stop() via callbacks registered by
+ * sentino_interface/sentino_rtc_export.c — no direct coupling here. */
 
 int agora_rtc_cli_init(void)
 {

@@ -3,8 +3,8 @@
 #include <components/log.h>
 
 #include "sentino_rtc_export.h"
-#include "sentino_iot/sentino_iot_engine.h"   /* sentino_register_rtc_* */
-#include "sentino_iot/sentino_mqtt.h"         /* sentino_rtc_params_t   */
+#include "sentino_iot_engine.h"   /* sentino_register_rtc_* */
+#include "sentino_mqtt.h"         /* sentino_rtc_params_t   */
 
 #if CONFIG_AGORA_IOT_SDK
 #include "agora_rtc_main.h"
