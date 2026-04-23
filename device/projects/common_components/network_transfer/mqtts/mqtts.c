@@ -8,12 +8,16 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>   /* for time(NULL) — diagnostic; mbedtls cert verify uses same source */
 
 #include <components/log.h>
 
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/ssl.h"
-#include "tls_connect.h"
+#include "mbedtls/x509_crt.h"
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/entropy.h"
+#include "tls_connect.h"   /* MbedTLSSession typedef only */
 
 #include "MQTTPacket.h"
 
@@ -42,6 +46,11 @@ typedef struct {
     bool                use_tls;
     /* TLS */
     MbedTLSSession     *tls;        /* heap-allocated; close routine frees host/port/buffer/self */
+    mbedtls_x509_crt    cacert;     /* CA chain — owned by us (NOT MbedTLSSession::cacert,
+                                     * which is only present when USE_CA_CERTIFICATE_EN=1
+                                     * in SDK config — a wrapper-internal flag we don't want
+                                     * to depend on). */
+    bool                cacert_inited;
     /* Plain TCP */
     mbedtls_net_context tcp;
     char               *tcp_host;   /* heap copies, freed by us */
@@ -124,10 +133,49 @@ static void tcp_close_fn(void *ctx)
 static const transport_ops_t TLS_OPS = { tls_read_fn, tls_write_fn, tls_close_fn };
 static const transport_ops_t TCP_OPS = { tcp_read_fn, tcp_write_fn, tcp_close_fn };
 
-/* TLS open: alloc heap session + host/port/buffer (mbedtls_client_close frees them) */
-static int tls_open(transport_t *t, const char *host, uint16_t port,
-                    uint16_t read_timeout_ms, uint16_t connect_timeout_ms)
+/* Manually free everything tls_open inits. Replaces SDK's mbedtls_client_close
+ * which (a) calls ssl_close_notify (would hang on dead WiFi) and (b) frees the
+ * SDK-private heap layout we don't fully own. We own everything we init'd here
+ * and free it ourselves.
+ *
+ * Note: cacert is owned by transport_t (not MbedTLSSession) — see transport_t
+ * comment. Caller must free t->cacert separately if t->cacert_inited. */
+static void tls_destroy(MbedTLSSession *s)
 {
+    if (!s) return;
+    mbedtls_ssl_free(&s->ssl);
+    mbedtls_ssl_config_free(&s->conf);
+    mbedtls_ctr_drbg_free(&s->ctr_drbg);
+    mbedtls_entropy_free(&s->entropy);
+    mbedtls_net_free(&s->server_fd);
+    if (s->host)   { os_free(s->host);   s->host = NULL; }
+    if (s->port)   { os_free(s->port);   s->port = NULL; }
+    if (s->buffer) { os_free(s->buffer); s->buffer = NULL; }
+    os_free(s);
+}
+
+/* Tolerated verify flags: time-validity errors only. With device clock = 1970
+ * (no NTP yet), BADCERT_FUTURE is expected. After NTP integration this mask
+ * becomes 0 (effectively VERIFY_REQUIRED). See plans/tls-verification-explainer.md */
+#define MQTTS_TOLERATED_VERIFY_FLAGS  \
+    (MBEDTLS_X509_BADCERT_FUTURE | MBEDTLS_X509_BADCERT_EXPIRED)
+
+/* TLS open: hand-rolled mbedtls init (bypassing SDK tls_connect.c which hardcodes
+ * VERIFY_NONE). When ca_pem != NULL, mode is OPTIONAL with selective reject:
+ *   - chain/hostname/usage failures abort the connection
+ *   - time-validity failures (FUTURE/EXPIRED) are tolerated and logged
+ * out_verify_flags receives the verify_result snapshot for stats. */
+static int tls_open(transport_t *t, const char *host, uint16_t port,
+                    uint16_t read_timeout_ms, uint16_t connect_timeout_ms,
+                    const char *ca_pem, uint32_t *out_verify_flags)
+{
+    if (out_verify_flags) *out_verify_flags = 0;
+
+    /* Diagnostic: log the device clock that mbedtls will use for cert
+     * notBefore/notAfter check. 1970 = 0, 2026-04 ≈ 1776e6. If this is 0
+     * but VERIFY succeeds anyway, time-validity is not actually checked. */
+    LOGW("tls_open: device time(NULL) = %lld", (long long)time(NULL));
+
     MbedTLSSession *s = (MbedTLSSession *)os_zalloc(sizeof(MbedTLSSession));
     if (!s) return -1;
 
@@ -135,51 +183,119 @@ static int tls_open(transport_t *t, const char *host, uint16_t port,
     s->port = (char *)os_malloc(8);
     s->buffer_len = 2048;
     s->buffer = (unsigned char *)os_malloc(s->buffer_len);
-    if (!s->host || !s->port || !s->buffer) {
-        if (s->host)   os_free(s->host);
-        if (s->port)   os_free(s->port);
-        if (s->buffer) os_free(s->buffer);
-        os_free(s);
-        return -1;
-    }
+    if (!s->host || !s->port || !s->buffer) goto fail_early;
     strcpy(s->host, host);
     snprintf(s->port, 8, "%u", port);
 
-    static const char *PERS = "mqtts";
-    int rc = mbedtls_client_init(s, (void *)PERS, strlen(PERS));
-    if (rc != 0) { LOGE("mbedtls_client_init: -0x%x", -rc); goto fail; }
+    /* mbedtls init — equivalent to mbedtls_client_init but without SDK lifecycle. */
+    mbedtls_net_init(&s->server_fd);
+    mbedtls_ssl_init(&s->ssl);
+    mbedtls_ssl_config_init(&s->conf);
+    mbedtls_ctr_drbg_init(&s->ctr_drbg);
+    mbedtls_entropy_init(&s->entropy);
 
-    /* Handshake stage: large per-read timeout (whole-handshake budget) so
-     * cert chain delivery doesn't hit a tight timeout and bail with -0x6800. */
+    static const char *PERS = "mqtts";
+    int rc = mbedtls_ctr_drbg_seed(&s->ctr_drbg, mbedtls_entropy_func, &s->entropy,
+                                   (const unsigned char *)PERS, strlen(PERS));
+    if (rc != 0) { LOGE("ctr_drbg_seed: -0x%x", -rc); goto fail; }
+
+    /* Parse CA chain if provided — use our own cacert in transport_t (not
+     * MbedTLSSession::cacert which is gated by SDK config USE_CA_CERTIFICATE_EN). */
+    if (ca_pem) {
+        mbedtls_x509_crt_init(&t->cacert);
+        t->cacert_inited = true;
+        rc = mbedtls_x509_crt_parse(&t->cacert,
+                                    (const unsigned char *)ca_pem,
+                                    strlen(ca_pem) + 1);  /* +1 for trailing \0 */
+        if (rc != 0) { LOGE("ca_pem parse: -0x%x", -rc); goto fail; }
+    }
+
+    rc = mbedtls_ssl_config_defaults(&s->conf,
+                                     MBEDTLS_SSL_IS_CLIENT,
+                                     MBEDTLS_SSL_TRANSPORT_STREAM,
+                                     MBEDTLS_SSL_PRESET_DEFAULT);
+    if (rc != 0) { LOGE("ssl_config_defaults: -0x%x", -rc); goto fail; }
+
+    /* OPTIONAL mode: handshake doesn't auto-abort; we read flags after and
+     * decide. This lets us tolerate time-validity errors without sacrificing
+     * chain/hostname enforcement. */
+    mbedtls_ssl_conf_authmode(&s->conf,
+        ca_pem ? MBEDTLS_SSL_VERIFY_OPTIONAL : MBEDTLS_SSL_VERIFY_NONE);
+    if (ca_pem) mbedtls_ssl_conf_ca_chain(&s->conf, &t->cacert, NULL);
+    mbedtls_ssl_conf_rng(&s->conf, mbedtls_ctr_drbg_random, &s->ctr_drbg);
+    /* Handshake budget — single ssl_read can take up to this long while
+     * cert chain is delivered. Post-handshake we switch bio so this no longer
+     * applies to runtime reads. */
     mbedtls_ssl_conf_read_timeout(&s->conf, connect_timeout_ms);
 
-    rc = mbedtls_client_context(s);
-    if (rc != 0) { LOGE("mbedtls_client_context: -0x%x", -rc); goto fail; }
+    rc = mbedtls_ssl_setup(&s->ssl, &s->conf);
+    if (rc != 0) { LOGE("ssl_setup: -0x%x", -rc); goto fail; }
 
-    rc = mbedtls_client_connect(s);
-    if (rc != 0) { LOGE("mbedtls_client_connect: -0x%x", -rc); goto fail; }
+    /* Hostname for SNI + SAN check. Required even with VERIFY_NONE for SNI. */
+    rc = mbedtls_ssl_set_hostname(&s->ssl, host);
+    if (rc != 0) { LOGE("ssl_set_hostname: -0x%x", -rc); goto fail; }
 
-    LOGW("TLS handshake OK (VERIFY_NONE — server cert NOT verified)");
+    rc = mbedtls_net_connect(&s->server_fd, s->host, s->port, MBEDTLS_NET_PROTO_TCP);
+    if (rc != 0) { LOGE("net_connect: -0x%x", -rc); goto fail; }
 
-    /* Post-handshake: switch to nonblock + replace bio recv from
-     * mbedtls_net_recv_timeout (which uses select with conf.read_timeout) to
-     * mbedtls_net_recv (no timeout — relies on socket being nonblock to return
-     * EAGAIN → MBEDTLS_ERR_SSL_WANT_READ). Otherwise reader's ssl_read would
-     * block in select() up to connect_timeout_ms holding io_mutex, starving
-     * publishers. */
+    /* Handshake stage: blocking + recv_timeout via bio for cert chain delivery. */
+    mbedtls_ssl_set_bio(&s->ssl, &s->server_fd,
+                        mbedtls_net_send, NULL, mbedtls_net_recv_timeout);
+
+    while ((rc = mbedtls_ssl_handshake(&s->ssl)) != 0) {
+        if (rc != MBEDTLS_ERR_SSL_WANT_READ && rc != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            LOGE("ssl_handshake: -0x%x", -rc);
+            goto fail;
+        }
+    }
+
+    /* OPTIONAL mode: handshake completed. Inspect verify_result and decide. */
+    if (ca_pem) {
+        uint32_t flags = mbedtls_ssl_get_verify_result(&s->ssl);
+        if (out_verify_flags) *out_verify_flags = flags;
+
+        if (flags == 0) {
+            LOGW("TLS handshake OK (server cert VERIFIED)");
+        } else {
+            uint32_t fatal = flags & ~(uint32_t)MQTTS_TOLERATED_VERIFY_FLAGS;
+            char vbuf[256];
+            mbedtls_x509_crt_verify_info(vbuf, sizeof vbuf, "  ! ", flags);
+            if (fatal != 0) {
+                LOGE("TLS handshake REJECTED — fatal verify flags 0x%x:\n%s",
+                     (unsigned)flags, vbuf);
+                goto fail;
+            }
+            LOGW("TLS handshake OK with TOLERATED verify flags 0x%x:\n%s",
+                 (unsigned)flags, vbuf);
+        }
+    } else {
+        LOGW("TLS handshake OK (VERIFY_NONE — server cert NOT validated)");
+    }
+
+    /* Post-handshake: nonblock + recv (no timeout) so reader's ssl_read returns
+     * WANT_READ immediately when no data, keeping io_mutex hold time <1ms.
+     * Otherwise reader blocks in select() up to connect_timeout_ms — see坑4. */
     mbedtls_net_set_nonblock(&s->server_fd);
     mbedtls_ssl_set_bio(&s->ssl, &s->server_fd,
-                        mbedtls_net_send,
-                        mbedtls_net_recv,
-                        NULL /* no recv_timeout fn */);
+                        mbedtls_net_send, mbedtls_net_recv, NULL);
 
     t->tls = s;
     t->use_tls = true;
     t->read_timeout_ms = read_timeout_ms;
     return 0;
 
+fail_early:
+    if (s->host)   os_free(s->host);
+    if (s->port)   os_free(s->port);
+    if (s->buffer) os_free(s->buffer);
+    os_free(s);
+    return -1;
 fail:
-    mbedtls_client_close(s);
+    tls_destroy(s);
+    if (t->cacert_inited) {
+        mbedtls_x509_crt_free(&t->cacert);
+        t->cacert_inited = false;
+    }
     return -1;
 }
 
@@ -278,6 +394,7 @@ struct mqtts {
     uint32_t            stat_rx_packets;
     uint32_t            stat_tx_packets;
     uint32_t            stat_pingresp_misses;
+    uint32_t            stat_last_verify_flags;
     uint32_t            connected_since_ms;
 
     /* Callbacks */
@@ -554,15 +671,20 @@ static int replay_subscriptions(mqtts_t *c)
     return 0;
 }
 
-/* Open transport (TLS or plain TCP) — wraps the existing tls_open / tcp_open. */
+/* Open transport (TLS or plain TCP) — wraps the existing tls_open / tcp_open.
+ * For TLS, captures verify_result flags into stats. */
 static int transport_open(mqtts_t *c)
 {
     int rc;
     if (c->cfg.use_tls) {
+        uint32_t flags = 0;
         rc = tls_open(&c->tr, c->host, c->cfg.port,
-                      c->cfg.read_timeout_ms, c->cfg.connect_timeout_ms);
+                      c->cfg.read_timeout_ms, c->cfg.connect_timeout_ms,
+                      c->cfg.ca_pem, &flags);
+        c->stat_last_verify_flags = flags;   /* stash even on success (may be tolerated flags) */
     } else {
         rc = tcp_open(&c->tr, c->host, c->cfg.port, c->cfg.read_timeout_ms);
+        c->stat_last_verify_flags = 0;
     }
     if (rc != 0) {
         LOGE("transport open failed (use_tls=%d)", c->cfg.use_tls);
@@ -573,19 +695,19 @@ static int transport_open(mqtts_t *c)
     return 0;
 }
 
-/* Close socket only (don't free TLS session — destroy() does that). Safe to call
- * with WiFi already down: ssl_close_notify is NOT invoked. */
+/* Close socket + free TLS session manually so reconnect can rebuild from zero.
+ * Skips ssl_close_notify entirely (would hang on dead WiFi). */
 static void transport_close_socket(mqtts_t *c)
 {
     if (c->cfg.use_tls) {
         if (c->tr.tls) {
             mbedtls_net_free(&c->tr.tls->server_fd);
-            /* Free the whole TLS session so reconnect can rebuild from zero;
-             * ssl_close_notify is skipped because the underlying fd is already
-             * gone after mbedtls_net_free. mbedtls_client_close does free
-             * everything (host, port, buffer, session itself). */
-            mbedtls_client_close(c->tr.tls);
+            tls_destroy(c->tr.tls);
             c->tr.tls = NULL;
+        }
+        if (c->tr.cacert_inited) {
+            mbedtls_x509_crt_free(&c->tr.cacert);
+            c->tr.cacert_inited = false;
         }
     } else {
         mbedtls_net_free(&c->tr.tcp);
@@ -845,6 +967,7 @@ void mqtts_get_stats(const mqtts_t *c, mqtts_stats_t *out)
     out->pingresp_misses    = c->stat_pingresp_misses;
     out->cur_backoff_ms     = (c->state == ST_CONNECTED) ? 0 : c->cur_backoff_ms;
     out->connected_since_ms = c->connected_since_ms;
+    out->last_verify_flags  = c->stat_last_verify_flags;
 }
 
 void mqtts_set_message_cb(mqtts_t *c, mqtts_message_cb_t cb, void *user)

@@ -65,7 +65,16 @@ typedef struct {
     uint16_t read_timeout_ms;       /* default 100 — per-read timeout in reader loop */
 
     /* Transport */
-    bool        use_tls;            /* false = plain TCP, true = TLS (VERIFY_NONE) */
+    bool        use_tls;            /* false = plain TCP, true = TLS via mbedtls */
+    const char *ca_pem;             /* PEM string, NULL-terminated. TLS path only.
+                                     *   NULL  → MBEDTLS_SSL_VERIFY_NONE (legacy/dev)
+                                     *   !NULL → VERIFY_OPTIONAL with selective reject:
+                                     *           chain/hostname/usage failures abort,
+                                     *           time-validity failures (FUTURE/EXPIRED)
+                                     *           are tolerated and logged. The time
+                                     *           tolerance will be removed in a follow-up
+                                     *           after NTP sync lands (then equivalent
+                                     *           to VERIFY_REQUIRED). */
 
     /* Buffers — heap-allocated by client */
     size_t rx_buf_size;             /* default 4096 */
@@ -122,6 +131,9 @@ typedef struct {
     uint32_t pingresp_misses;     /* PINGRESP timeouts that forced a disconnect */
     uint32_t cur_backoff_ms;      /* current backoff value; 0 when connected */
     uint32_t connected_since_ms;  /* rtos_get_time() value at last successful connect, 0 if not connected */
+    uint32_t last_verify_flags;   /* mbedtls_ssl_get_verify_result of last TLS handshake;
+                                   * 0 means cert fully verified. Common non-fatal value:
+                                   * 0x200 (BADCERT_FUTURE) when device clock < cert notBefore. */
 } mqtts_stats_t;
 
 /* Lifecycle */

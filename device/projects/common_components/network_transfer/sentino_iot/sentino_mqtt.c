@@ -10,6 +10,7 @@
 #include "agora_config.h"
 #include "mqtts.h"
 #include "sentino_mqtt.h"
+#include "sentino_broker_ca.h"
 
 #define TAG "sentino_mqtt"
 
@@ -344,6 +345,11 @@ int sentino_mqtt_connect(void)
     cfg.username           = s_mqtt.username;
     cfg.password           = s_mqtt.password;
     cfg.use_tls            = IS_TLS_PORT(s_mqtt.port);
+    /* When TLS, validate server cert against the embedded Sentino CA. mqtts
+     * runs in OPTIONAL+selective-reject mode: chain/hostname/usage failures
+     * abort, time-validity failures (FUTURE/EXPIRED) are tolerated until NTP
+     * sync lands. See plans/tls-verification-explainer.md */
+    cfg.ca_pem             = cfg.use_tls ? SENTINO_BROKER_CA_PEM : NULL;
     cfg.max_subscriptions  = 4;   /* sentino uses 2; small to save RAM */
 
     s_mqtt.mq = mqtts_create(&cfg);

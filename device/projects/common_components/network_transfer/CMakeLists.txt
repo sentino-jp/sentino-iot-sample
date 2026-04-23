@@ -32,6 +32,7 @@ list(APPEND srcs
 	sentino_iot/sentino_mqtt.c
 	sentino_iot/sentino_dev_info.c
 	sentino_iot/sentino_iot_engine.c
+	sentino_iot/sentino_broker_ca.c
 )
 endif()
 
