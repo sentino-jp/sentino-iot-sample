@@ -81,8 +81,24 @@ int sentino_mqtt_request_rtc_access(sentino_rtc_params_t *out);
 /** Publish NFC report. */
 int sentino_mqtt_publish_nfc_report(const uint8_t *nfc_id, int nfc_id_len, int only_report);
 
-/** Publish property report. */
+/** Publish single-property report (convenience). For multi-property
+ *  reports build a `properties` cJSON object and use publish_event. */
 int sentino_mqtt_publish_property(const char *key, const char *value);
+
+/** Generic device→cloud event publish on the report topic.
+ *  `data` is the body that goes under "data" — pass a cJSON object or NULL.
+ *  Caller retains ownership of `data`; it is deep-copied internally. */
+struct cJSON;  /* forward-decl so callers don't need cJSON.h */
+int sentino_mqtt_publish_event(const char *code, int ack, struct cJSON *data);
+
+/** Reply to a cloud-issued command on the issue_response topic.
+ *  `id` MUST echo the original issue id so cloud can correlate (ref-mqtt §3.4).
+ *  res=0 means success; non-zero means failure. msg may be NULL (then
+ *  "success"/"fail" is filled in). data may be NULL. Caller retains
+ *  ownership of `data`; it is deep-copied internally. */
+int sentino_mqtt_publish_issue_response(const char *id, const char *code,
+                                        int res, const char *msg,
+                                        struct cJSON *data);
 
 /** Register handler for cloud-issued commands (reset, ota, ping, property_set). */
 void sentino_mqtt_register_issue_handler(sentino_issue_handler_t handler);

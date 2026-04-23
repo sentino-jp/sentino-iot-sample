@@ -27,6 +27,11 @@ void Register_Sentino_Dp_Set_Cb(dp_set_cb_t cb);
  * sentino_mqtt_export.h family. */
 int  Sentino_Dp_Report_Export(const dp_obj_t *dp);
 
+/* Batched property report — one MQTT message with all DPs grouped under
+ * data.properties (ref-mqtt §4.6). Use when several values change at
+ * once (e.g. boot snapshot of switch+volume+battery). */
+int  Sentino_Dp_Report_Many_Export(const dp_obj_t *dps, size_t count);
+
 #ifdef __cplusplus
 }
 #endif

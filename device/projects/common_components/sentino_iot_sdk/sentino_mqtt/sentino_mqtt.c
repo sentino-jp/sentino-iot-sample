@@ -509,18 +509,63 @@ int sentino_mqtt_publish_nfc_report(const uint8_t *nfc_id, int nfc_id_len, int o
 
 int sentino_mqtt_publish_property(const char *key, const char *value)
 {
+    /* property_report data shape per ref-mqtt §4.6:
+     *   data: { "properties": { <identifier>: <value>, ... } }
+     * Single-property convenience; for batch use sentino_mqtt_publish_event
+     * directly with a pre-built properties object. */
+    cJSON *data = cJSON_CreateObject();
+    cJSON *props = cJSON_AddObjectToObject(data, "properties");
+    cJSON_AddStringToObject(props, key, value);
+
+    int ret = sentino_mqtt_publish_event("property_report", 0, data);
+    cJSON_Delete(data);
+    return ret;
+}
+
+int sentino_mqtt_publish_event(const char *code, int ack, struct cJSON *data)
+{
     cJSON *root = cJSON_CreateObject();
     char msg_id[96];
     generate_msg_id(msg_id, sizeof(msg_id));
 
-    cJSON_AddStringToObject(root, "code", "property_report");
+    cJSON_AddStringToObject(root, "code", code);
     cJSON_AddStringToObject(root, "id", msg_id);
-    cJSON_AddNumberToObject(root, "ack", 0);
-
-    cJSON *data = cJSON_AddObjectToObject(root, "data");
-    cJSON_AddStringToObject(data, key, value);
+    cJSON_AddNumberToObject(root, "ack", ack);
+    /* Always include a data field. Caller may pass NULL for events with
+     * no body (ref-mqtt §3.1 — data is required). */
+    if (data) {
+        /* Take a copy: the caller still owns `data` and will free it. */
+        cJSON *data_copy = cJSON_Duplicate(data, 1);
+        cJSON_AddItemToObject(root, "data", data_copy);
+    } else {
+        cJSON_AddObjectToObject(root, "data");
+    }
 
     int ret = publish_json(s_mqtt.topic_report, root);
+    cJSON_Delete(root);
+    return ret;
+}
+
+int sentino_mqtt_publish_issue_response(const char *id, const char *code,
+                                        int res, const char *msg,
+                                        struct cJSON *data)
+{
+    /* Reply shape per ref-mqtt §3.4 — id MUST echo the issue id so cloud
+     * can correlate. Sent on issue_response topic, not report. */
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "res", res);
+    cJSON_AddStringToObject(root, "msg", msg ? msg : (res == 0 ? "success" : "fail"));
+    cJSON_AddStringToObject(root, "id", id ? id : "");
+    cJSON_AddNumberToObject(root, "ts", (double)rtos_get_time() / 1000.0);
+    cJSON_AddStringToObject(root, "code", code ? code : "");
+    if (data) {
+        cJSON *data_copy = cJSON_Duplicate(data, 1);
+        cJSON_AddItemToObject(root, "data", data_copy);
+    } else {
+        cJSON_AddObjectToObject(root, "data");
+    }
+
+    int ret = publish_json(s_mqtt.topic_issue_response, root);
     cJSON_Delete(root);
     return ret;
 }

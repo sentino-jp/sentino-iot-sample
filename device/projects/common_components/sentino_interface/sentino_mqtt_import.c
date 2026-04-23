@@ -10,3 +10,8 @@ int Sentino_Dp_Report_Export(const dp_obj_t *dp)
 {
     return Sentino_Dp_Report(dp);
 }
+
+int Sentino_Dp_Report_Many_Export(const dp_obj_t *dps, size_t count)
+{
+    return Sentino_Dp_Report_Many(dps, count);
+}

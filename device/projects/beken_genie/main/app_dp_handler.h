@@ -3,26 +3,25 @@
 
 /* Business-side DP (Thing-Model) handler.
  *
- * Owns the product's DPID enum and the on-property-set switch. Registers
- * itself with sentino_interface at boot so cloud→device property_set
- * messages land here as typed dp_obj_t.
+ * Owns the product's identifier set and the on-property-set switch.
+ * Registers itself with sentino_interface at boot so cloud→device
+ * property_set messages land here as typed dp_obj_t.
  *
- * For now this is a skeleton — the switch logs and reflects values back.
- * Wire the real volume/switch/charge actions when the cloud schema for
- * property_set is locked down. */
+ * For now this is a skeleton — the switch logs and reflects values back
+ * via the issue_response that Sentino_Dp_Set_Parse already emits. Wire
+ * the real volume/switch/charge actuators when needed. */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* DPIDs match the BUILD_GUIDE.md Thing-Model table. Don't renumber:
- * cloud config and schema lock these in. */
-enum {
-    DPID_SWITCH             = 1,   /* bool */
-    DPID_BATTERY_PERCENT    = 2,   /* int  */
-    DPID_VOLUME_SET         = 3,   /* int  0-10 */
-    DPID_CHARGE_STATUS      = 4,   /* enum */
-};
+/* Identifier strings match BUILD_GUIDE.md Thing-Model and the cloud
+ * model registered against this PID. The cloud sends these as keys in
+ * data.properties (ref-mqtt §5.4), so they must match exactly. */
+#define DP_ID_SWITCH                "switch"
+#define DP_ID_BATTERY_PERCENTAGE    "battery_percentage"
+#define DP_ID_VOLUME_SET            "volume_set"
+#define DP_ID_CHARGE_STATUS         "charge_status"
 
 /* Register the handler with sentino_interface. Idempotent.
  * Call once from user_app_main() AFTER network_transfer_init() (which
