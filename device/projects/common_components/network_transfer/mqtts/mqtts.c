@@ -384,9 +384,18 @@ struct mqtts {
     /* Reconnect bookkeeping */
     uint32_t            cur_backoff_ms;
 
-    /* PINGRESP liveness check — 0 = no outstanding ping */
+    /* PINGRESP liveness check.
+     *   last_pingreq_ms / last_pingresp_ms — most recent timestamps, used
+     *     for RTT logging and as low-level state.
+     *   oldest_unacked_ping_ms — timestamp of the FIRST PINGREQ in the
+     *     current outstanding window. Reset to 0 when PINGRESP arrives.
+     *     Critical for the timeout check: using last_pingreq_ms there is
+     *     a bug because each new PINGREQ resets it before the timeout
+     *     can fire when pingresp_timeout_ms >= ping_interval (=keepalive*500).
+     *     Validated via sim_pingresp_timeout.py. */
     uint32_t            last_pingreq_ms;
     uint32_t            last_pingresp_ms;
+    uint32_t            oldest_unacked_ping_ms;
 
     /* Stats (see mqtts_stats_t in header) */
     uint32_t            stat_reconnect_count;
@@ -488,10 +497,15 @@ static void send_pingreq(mqtts_t *c)
     rtos_lock_mutex(&c->io_mutex);
     int n = MQTTSerialize_pingreq(c->tx_buf, c->cfg.tx_buf_size);
     if (n > 0 && send_locked(c, c->tx_buf, n) == 0) {
-        c->last_pingreq_ms = rtos_get_time();
-        /* Bumped to LOGW so production logs show keepalive cadence — the
-         * silent LOGD made it impossible to tell if 'PINGRESP timeout'
-         * was a server latency issue or a client send-side stall. */
+        uint32_t now = rtos_get_time();
+        c->last_pingreq_ms = now;
+        /* Only set oldest-unacked on the FIRST ping of a new outstanding
+         * window. Subsequent PINGREQs while we're still waiting must NOT
+         * reset it — otherwise the timeout check sees a fresh timestamp
+         * each interval and never fires (zombie connection). */
+        if (c->oldest_unacked_ping_ms == 0) {
+            c->oldest_unacked_ping_ms = now;
+        }
         LOGW("PINGREQ");
     }
     rtos_unlock_mutex(&c->io_mutex);
@@ -565,8 +579,10 @@ static void dispatch_packet(mqtts_t *c, int type, uint8_t *buf, int len)
     case PINGRESP: {
         uint32_t now = rtos_get_time();
         c->last_pingresp_ms = now;
-        /* Log RTT so future field reports tell us whether the server's
-         * actual PINGRESP latency stays inside our 30s window. */
+        /* Clearing oldest_unacked_ping_ms is the ONLY way the liveness
+         * window resets. Any unacked PINGREQs from this window are now
+         * considered acknowledged (PINGs are idempotent). */
+        c->oldest_unacked_ping_ms = 0;
         LOGW("PINGRESP rtt=%ums",
              (unsigned)(c->last_pingreq_ms ? (now - c->last_pingreq_ms) : 0));
         break;
@@ -764,9 +780,10 @@ static int do_connect_and_replay(mqtts_t *c)
         return -1;
     }
     /* Reset liveness counters on every fresh connect */
-    c->last_pingreq_ms  = 0;
-    c->last_pingresp_ms = 0;
-    c->last_send_ms     = rtos_get_time();
+    c->last_pingreq_ms        = 0;
+    c->last_pingresp_ms       = 0;
+    c->oldest_unacked_ping_ms = 0;
+    c->last_send_ms           = rtos_get_time();
 
     if (replay_subscriptions(c) != 0) {
         transport_close_socket(c);
@@ -803,10 +820,9 @@ static void backoff_sleep(mqtts_t *c)
 
 static bool pingresp_timed_out(const mqtts_t *c)
 {
-    if (c->cfg.pingresp_timeout_ms == 0) return false;
-    if (c->last_pingreq_ms == 0)         return false;
-    if (c->last_pingresp_ms >= c->last_pingreq_ms) return false;  /* answered */
-    return (rtos_get_time() - c->last_pingreq_ms) > c->cfg.pingresp_timeout_ms;
+    if (c->cfg.pingresp_timeout_ms == 0)   return false;
+    if (c->oldest_unacked_ping_ms == 0)    return false;  /* nothing outstanding */
+    return (rtos_get_time() - c->oldest_unacked_ping_ms) > c->cfg.pingresp_timeout_ms;
 }
 
 static void reader_task(beken_thread_arg_t arg)
