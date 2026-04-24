@@ -489,7 +489,10 @@ static void send_pingreq(mqtts_t *c)
     int n = MQTTSerialize_pingreq(c->tx_buf, c->cfg.tx_buf_size);
     if (n > 0 && send_locked(c, c->tx_buf, n) == 0) {
         c->last_pingreq_ms = rtos_get_time();
-        LOGD("PINGREQ");
+        /* Bumped to LOGW so production logs show keepalive cadence — the
+         * silent LOGD made it impossible to tell if 'PINGRESP timeout'
+         * was a server latency issue or a client send-side stall. */
+        LOGW("PINGREQ");
     }
     rtos_unlock_mutex(&c->io_mutex);
 }
@@ -559,10 +562,15 @@ static void dispatch_packet(mqtts_t *c, int type, uint8_t *buf, int len)
         }
         break;
     }
-    case PINGRESP:
-        c->last_pingresp_ms = rtos_get_time();
-        LOGD("PINGRESP");
+    case PINGRESP: {
+        uint32_t now = rtos_get_time();
+        c->last_pingresp_ms = now;
+        /* Log RTT so future field reports tell us whether the server's
+         * actual PINGRESP latency stays inside our 30s window. */
+        LOGW("PINGRESP rtt=%ums",
+             (unsigned)(c->last_pingreq_ms ? (now - c->last_pingreq_ms) : 0));
         break;
+    }
     default:
         LOGD("rx packet type=%d", type);
         break;

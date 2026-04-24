@@ -107,9 +107,15 @@ typedef struct {
  *   cfg.client_id = "device-42";
  *   cfg.use_tls   = true;
  */
+/* Defaults tuned for BK7258 + WiFi + 8883 TLS to mqtt-iot.sentino.jp.
+ * Earlier 10s timeouts were too tight for this combo — server PINGRESP
+ * latency under TLS regularly hit the 10-30s range, causing repeated
+ * spurious reconnects every ~40s of idle. Reference firmware (mi_mqtt)
+ * uses 30s pingresp timeout; we match that. Handshake recv was also
+ * timing out at 10s on slow cert-chain fragments. */
 #define MQTTS_CFG_DEFAULTS() ((mqtts_config_t){ \
     .keepalive_sec       = 60,    \
-    .connect_timeout_ms  = 10000, \
+    .connect_timeout_ms  = 15000, \
     .read_timeout_ms     = 100,   \
     .rx_buf_size         = 4096,  \
     .tx_buf_size         = 2048,  \
@@ -118,7 +124,7 @@ typedef struct {
     .auto_reconnect      = true,  \
     .reconnect_min_ms    = 1000,  \
     .reconnect_max_ms    = 60000, \
-    .pingresp_timeout_ms = 10000, \
+    .pingresp_timeout_ms = 30000, \
     .max_subscriptions   = 8,     \
 })
 
