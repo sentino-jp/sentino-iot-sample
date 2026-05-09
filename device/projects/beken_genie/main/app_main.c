@@ -37,6 +37,10 @@
 #include "media_app.h"
 #include "app_event.h"
 #include "countdown.h"
+#if CONFIG_SENTINO_IOT && CONFIG_ENABLE_AGORA_DATASTREAM
+#include "cJSON.h"
+#include "sentino_conv_ai_command.h"
+#endif
 #include <led_blink.h>
 #include <common/bk_include.h>
 #include "components/bluetooth/bk_dm_bluetooth.h"
@@ -51,6 +55,22 @@ extern int bk_cli_init(void);
 extern void bk_set_jtag_mode(uint32_t cpu_id, uint32_t group_id);
 
 #define TAG "GENIE"
+
+#if CONFIG_SENTINO_IOT && CONFIG_ENABLE_AGORA_DATASTREAM
+/* P0 stub: log every action ConvoAI sends down. Real LCD / vibration /
+ * volume drivers wire up later — once the cloud-side StarBuddy product
+ * config stabilizes. */
+static int conv_ai_stub_log_executor(const char *executor,
+                                     const cJSON *parameters,
+                                     int priority)
+{
+    char *params_str = parameters ? cJSON_PrintUnformatted((cJSON *)parameters) : NULL;
+    BK_LOGW(TAG, "action: executor=%s priority=%d params=%s\n",
+            executor, priority, params_str ? params_str : "{}");
+    if (params_str) cJSON_free(params_str);
+    return 0;
+}
+#endif
 
 #ifdef CONFIG_LDO3V3_ENABLE
 #ifndef LDO3V3_CTRL_GPIO
@@ -280,6 +300,14 @@ int main(void)
 
 #if CONFIG_ENABLE_AGORA_DATASTREAM
         bk_sconf_init_datastream_resource();
+#if CONFIG_SENTINO_IOT
+        /* Consume datastream commands (device_control / _publish_message
+         * envelope from cloud). Must follow init_datastream_resource so the
+         * queue exists; must precede RTC join so we don't miss the first
+         * command. P0 = stub log only. */
+        bk_conv_ai_command_register_executor(conv_ai_stub_log_executor);
+        bk_conv_ai_command_init();
+#endif
 #endif
 
 #if CONFIG_BUTTON
