@@ -57,10 +57,78 @@ extern void bk_set_jtag_mode(uint32_t cpu_id, uint32_t group_id);
 #define TAG "GENIE"
 
 #if CONFIG_SENTINO_IOT && CONFIG_ENABLE_AGORA_DATASTREAM
-/* P0 stub: log every action ConvoAI sends down. Real LCD / vibration /
- * volume drivers wire up later — once the cloud-side StarBuddy product
- * config stabilizes. */
-static int conv_ai_stub_log_executor(const char *executor,
+/* Defined in dual_screen_avi_play/lvgl_app.c. CPU0 calls it; the impl
+ * forwards to media_app via mailbox so CPU1's lvgl renders the AVI. Used
+ * here for the idle-default path that bypasses app_event's enum-only API. */
+extern void lvgl_app_play(char *avi_name);
+
+/* Map cloud-side emotion_type strings → app_event.h enums. Names align with
+ * EMOTION_* in app_event.h:5-13 (and with the upstream Agora R1 reference
+ * in bk_smart_config_agora_adapter.c:43-94). Acts as a whitelist: any
+ * emotion_type the cloud sends that's not in this table gets silently
+ * skipped before lvgl is touched, side-stepping a known SDK NULL-deref
+ * when bk_avi_play_open() is called the first time on a missing file. */
+static const struct { const char *name; app_emotion_t value; } s_emotion_map[] = {
+    { "happy",     EMOTION_HAPPY     },
+    { "sad",       EMOTION_SAD       },
+    { "angry",     EMOTION_ANGRY     },
+    { "surprised", EMOTION_SURPRISED },
+    { "neutral",   EMOTION_NEUTRAL   },
+    { "thinking",  EMOTION_THINKING  },
+    { "sleepy",    EMOTION_SLEEPY    },
+    { "loving",    EMOTION_LOVING    },
+    { "curious",   EMOTION_CURIOUS   },
+};
+
+/* After dispatching an emotion AVI, the LCD loops it forever (bk_avi_play
+ * has no play-once / play-N API). Schedule a one-shot fallback that
+ * switches the LCD back to the idle "/genie_eye.avi" after a quiet window.
+ * New emotion commands reset the timer. */
+#define CONV_AI_IDLE_MS              8000
+#define CONV_AI_IDLE_DEFAULT_AVI     "/genie_eye.avi"
+
+static beken2_timer_t s_idle_timer;
+static bool           s_idle_timer_inited = false;
+
+static void conv_ai_idle_timer_cb(void *larg, void *rarg)
+{
+    (void)larg; (void)rarg;
+    BK_LOGW(TAG, "emotion idle timeout, restoring %s\n", CONV_AI_IDLE_DEFAULT_AVI);
+    /* Direct lvgl call (cross-CPU mailbox under the hood). Skipping the
+     * app_event bus because that one's API only takes EMOTION_* enums and
+     * genie_eye isn't in the enum. Race with conv_ai worker calling
+     * lvgl_app_play on an emotion is theoretical (CONV_AI_IDLE_MS gap);
+     * if it ever bites, gate this behind the worker via a new event type. */
+    lvgl_app_play(CONV_AI_IDLE_DEFAULT_AVI);
+}
+
+static void conv_ai_arm_idle_timer(void)
+{
+    bk_err_t ret;
+    if (!s_idle_timer_inited) {
+        ret = rtos_init_oneshot_timer(&s_idle_timer, CONV_AI_IDLE_MS,
+                                      conv_ai_idle_timer_cb, NULL, NULL);
+        if (ret != BK_OK) {
+            BK_LOGE(TAG, "idle timer init failed: %d (no fallback)\n", ret);
+            return;
+        }
+        s_idle_timer_inited = true;
+    } else if (rtos_is_oneshot_timer_running(&s_idle_timer)) {
+        rtos_stop_oneshot_timer(&s_idle_timer);
+    }
+    ret = rtos_start_oneshot_timer(&s_idle_timer);
+    if (ret != BK_OK) {
+        BK_LOGW(TAG, "idle timer start failed: %d\n", ret);
+    }
+}
+
+/* Dispatch one cloud-issued action. Always logs at W (LOGI gets stripped in
+ * release, and one line per action is low frequency enough not to flood).
+ * Currently routes display_emotion → APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE
+ * which the app_event worker resolves to lvgl_app_play(<emotion>.avi).
+ * Unknown executor / unknown emotion warns and returns -1; queue keeps
+ * draining. */
+static int conv_ai_executor_dispatch(const char *executor,
                                      const cJSON *parameters,
                                      int priority)
 {
@@ -68,7 +136,28 @@ static int conv_ai_stub_log_executor(const char *executor,
     BK_LOGW(TAG, "action: executor=%s priority=%d params=%s\n",
             executor, priority, params_str ? params_str : "{}");
     if (params_str) cJSON_free(params_str);
-    return 0;
+
+    if (strcmp(executor, "display_emotion") == 0) {
+        const char *et = cJSON_GetStringValue(
+                             cJSON_GetObjectItemCaseSensitive(parameters, "emotion_type"));
+        if (!et) {
+            BK_LOGW(TAG, "display_emotion missing emotion_type\n");
+            return -1;
+        }
+        for (size_t i = 0; i < sizeof(s_emotion_map)/sizeof(s_emotion_map[0]); i++) {
+            if (strcmp(et, s_emotion_map[i].name) == 0) {
+                app_event_send_msg(APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE,
+                                   (uint32_t)s_emotion_map[i].value);
+                conv_ai_arm_idle_timer();
+                return 0;
+            }
+        }
+        BK_LOGW(TAG, "unsupported emotion: %s\n", et);
+        return -1;
+    }
+
+    BK_LOGW(TAG, "unsupported executor: %s\n", executor);
+    return -1;
 }
 #endif
 
@@ -305,7 +394,7 @@ int main(void)
          * envelope from cloud). Must follow init_datastream_resource so the
          * queue exists; must precede RTC join so we don't miss the first
          * command. P0 = stub log only. */
-        bk_conv_ai_command_register_executor(conv_ai_stub_log_executor);
+        bk_conv_ai_command_register_executor(conv_ai_executor_dispatch);
         bk_conv_ai_command_init();
 #endif
 #endif

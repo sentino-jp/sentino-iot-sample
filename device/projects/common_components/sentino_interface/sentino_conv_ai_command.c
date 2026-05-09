@@ -263,8 +263,11 @@ static void parse_and_dispatch(const char *frame)
         return;     /* wait for more fragments */
     }
 
-    /* All fragments in. Decode and dispatch, then reset state. */
-    LOGW("reassembled msgid=%s frags=%d b64_len=%u\n",
+    /* All fragments in. Decode and dispatch, then reset state.
+     * LOGI (gets stripped in release; happens often enough that LOGW would
+     * flood the console). Open a CONFIG_CONV_AI_DEBUG knob if we ever need
+     * this back during field diagnosis. */
+    LOGI("reassembled msgid=%s frags=%d b64_len=%u\n",
          s_accum_msgid, s_accum_total, (unsigned)s_accum_len);
     decode_and_dispatch(s_accum_buf, s_accum_len);
     accum_reset();
