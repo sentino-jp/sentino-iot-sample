@@ -57,11 +57,6 @@ extern void bk_set_jtag_mode(uint32_t cpu_id, uint32_t group_id);
 #define TAG "GENIE"
 
 #if CONFIG_SENTINO_IOT && CONFIG_ENABLE_AGORA_DATASTREAM
-/* Defined in dual_screen_avi_play/lvgl_app.c. CPU0 calls it; the impl
- * forwards to media_app via mailbox so CPU1's lvgl renders the AVI. Used
- * here for the idle-default path that bypasses app_event's enum-only API. */
-extern void lvgl_app_play(char *avi_name);
-
 /* Map cloud-side emotion_type strings → app_event.h enums. Names align with
  * EMOTION_* in app_event.h:5-13 (and with the upstream Agora R1 reference
  * in bk_smart_config_agora_adapter.c:43-94). Acts as a whitelist: any
@@ -94,12 +89,12 @@ static void conv_ai_idle_timer_cb(void *larg, void *rarg)
 {
     (void)larg; (void)rarg;
     BK_LOGW(TAG, "emotion idle timeout, restoring %s\n", CONV_AI_IDLE_DEFAULT_AVI);
-    /* Direct lvgl call (cross-CPU mailbox under the hood). Skipping the
-     * app_event bus because that one's API only takes EMOTION_* enums and
-     * genie_eye isn't in the enum. Race with conv_ai worker calling
-     * lvgl_app_play on an emotion is theoretical (CONV_AI_IDLE_MS gap);
-     * if it ever bites, gate this behind the worker via a new event type. */
-    lvgl_app_play(CONV_AI_IDLE_DEFAULT_AVI);
+    /* Post to app_event worker — lvgl_app_play does a sync cross-core
+     * mailbox call that the timer-service thread cannot legally drive
+     * (observed: media_major_mailbox ack flag error 97 → idle restore
+     * fails). Worker thread is allowed to block on the mailbox, and
+     * routing through it also serializes with the emotion change path. */
+    app_event_send_msg(APP_EVT_CONVOAI_RESTORE_IDLE_AVI, 0);
 }
 
 static void conv_ai_arm_idle_timer(void)
