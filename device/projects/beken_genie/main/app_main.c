@@ -401,6 +401,13 @@ int main(void)
 #if CONFIG_BAT_MONITOR
         extern void battery_monitor_init(void);
         battery_monitor_init();
+#if CONFIG_SENTINO_IOT
+        /* Periodic battery/charge sampler that pushes the read-only DPs
+         * to cloud on change. Must follow battery_monitor_init so the
+         * driver's xGlobalHandle is open before we sample. */
+        extern void app_battery_dp_init(void);
+        app_battery_dp_init();
+#endif
 #endif
 
 #endif

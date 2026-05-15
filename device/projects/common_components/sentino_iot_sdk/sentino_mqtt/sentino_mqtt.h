@@ -103,6 +103,12 @@ int sentino_mqtt_publish_issue_response(const char *id, const char *code,
 /** Register handler for cloud-issued commands (reset, ota, ping, property_set). */
 void sentino_mqtt_register_issue_handler(sentino_issue_handler_t handler);
 
+/** Register a transport-layer hook fired on every successful (re)connect.
+ *  Invoked from the mqtts reader task with io_mutex held — caller MUST NOT
+ *  publish synchronously (would deadlock); dispatch to a worker. Idempotent;
+ *  latest call wins. NULL clears. */
+void sentino_mqtt_register_connected_cb(void (*cb)(void));
+
 /* Provisioning info persistence (NVS) */
 void sentino_provision_info_write(const sentino_provision_info_t *info);
 void sentino_provision_info_read(sentino_provision_info_t *info);
