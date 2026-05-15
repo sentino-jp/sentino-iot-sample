@@ -40,6 +40,18 @@ typedef void (*sentino_rtc_release_cb_t)(void);
 void sentino_register_rtc_handoff(sentino_rtc_handoff_cb_t cb);
 void sentino_register_rtc_release(sentino_rtc_release_cb_t cb);
 
+/* Business hook fired AFTER the engine has pushed bind+info on a fresh
+ * mqtts CONNECTED. Guarantees subsequent business publish (e.g.
+ * property_report snapshot) arrives after bind/info on the wire — the
+ * worker serializes them. Does NOT wait for any bind ack — cloud accepts
+ * property_report based on device credential alone (实测 alignment with
+ * bk7258aitoypro Rino_Mqtt_Connected_Callback).
+ *
+ * Fires on every CONNECTED (boot + each reconnect). Handler must be
+ * idempotent and apply its own throttling. Runs in app_event worker
+ * context — safe to publish synchronously here. Latest call wins. */
+void sentino_engine_register_cloud_ready_cb(void (*cb)(void));
+
 #ifdef __cplusplus
 }
 #endif

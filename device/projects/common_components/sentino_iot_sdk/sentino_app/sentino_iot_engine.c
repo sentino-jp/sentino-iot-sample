@@ -24,9 +24,41 @@ static sentino_rtc_params_t       s_sentino_rtc_params;
 static bool                       s_sentino_started = false;
 static sentino_rtc_handoff_cb_t   s_rtc_handoff = NULL;
 static sentino_rtc_release_cb_t   s_rtc_release = NULL;
+static void                      (*s_cloud_ready_cb)(void) = NULL;
+static sentino_provision_info_t   s_prov_cache = {0};   /* snapshot at engine_init for worker */
 
 void sentino_register_rtc_handoff(sentino_rtc_handoff_cb_t cb) { s_rtc_handoff = cb; }
 void sentino_register_rtc_release(sentino_rtc_release_cb_t cb) { s_rtc_release = cb; }
+void sentino_engine_register_cloud_ready_cb(void (*cb)(void)) { s_cloud_ready_cb = cb; }
+
+/* Posted from mqtts reader task — io_mutex is held there. Just enqueue
+ * onto the app_event worker; bind/info/cb run there. */
+static void on_mqtt_connected(void)
+{
+    app_event_send_msg(APP_EVT_CLOUD_CONNECTED, 0);
+}
+
+/* Runs in app_event worker context. Serializes bind → info → cloud_ready_cb
+ * so business publish from the cb arrives after bind/info on the wire.
+ * Don't gate cb on publish failures — next reconnect will retry the lot. */
+static void on_cloud_connected_worker(app_evt_msg_t *msg, void *user_data)
+{
+    (void)msg; (void)user_data;
+    LOGI("cloud connected — pushing bind/info\n");
+
+    /* Sticking to current behavior: always publish both. bk7258aitoypro
+     * branches on Flag_Bind to send only one — porting that flag (NVS-
+     * backed bind state) is a separate task, out of scope here. */
+    int rc1 = sentino_mqtt_publish_bind(s_prov_cache.user_id,
+                                        s_prov_cache.asset_id,
+                                        SENTINO_FW_VERSION);
+    if (rc1 != 0) LOGW("publish_bind failed (rc=%d) — continuing\n", rc1);
+
+    int rc2 = sentino_mqtt_publish_info(SENTINO_FW_VERSION, /*bind_status=*/true);
+    if (rc2 != 0) LOGW("publish_info failed (rc=%d) — continuing\n", rc2);
+
+    if (s_cloud_ready_cb) s_cloud_ready_cb();
+}
 
 static void sentino_issue_handler(const char *code, const char *payload_json)
 {
@@ -71,30 +103,36 @@ void sentino_iot_engine_init(void)
         return;
     }
 
-    sentino_provision_info_t prov_info = {0};
-    sentino_provision_info_read(&prov_info);
+    sentino_provision_info_read(&s_prov_cache);
 
-    if (prov_info.mqtt_broker[0] == '\0') {
+    if (s_prov_cache.mqtt_broker[0] == '\0') {
         LOGE("sentino provision info not found. need BLE provisioning first.\n");
         return;
     }
 
     const sentino_triple_t *t = sentino_dev_info_get_triple();
     LOGW("sentino init: broker=%s, port=%u, uuid=%s, pid=%s\n",
-         prov_info.mqtt_broker, prov_info.mqtt_port, t->Uuid, t->Pid);
+         s_prov_cache.mqtt_broker, s_prov_cache.mqtt_port, t->Uuid, t->Pid);
 
-    sentino_mqtt_init(prov_info.mqtt_broker, prov_info.mqtt_port,
+    sentino_mqtt_init(s_prov_cache.mqtt_broker, s_prov_cache.mqtt_port,
                       t->Uuid, t->Secret, t->Pid);
+
+    /* Register handlers BEFORE connect: CONNECTED event may fire from the
+     * reader task before sentino_mqtt_connect() returns. Worker handler
+     * also needs to be in place before the dispatcher fires. */
+    sentino_mqtt_register_issue_handler(sentino_issue_handler);
+    sentino_mqtt_register_connected_cb(on_mqtt_connected);
+    app_event_register_handler(APP_EVT_CLOUD_CONNECTED,
+                               on_cloud_connected_worker, NULL);
 
     if (0 != sentino_mqtt_connect()) {
         LOGE("sentino MQTT connect failed\n");
         return;
     }
 
-    sentino_mqtt_register_issue_handler(sentino_issue_handler);
-
-    sentino_mqtt_publish_bind(prov_info.user_id, prov_info.asset_id, SENTINO_FW_VERSION);
-    sentino_mqtt_publish_info(SENTINO_FW_VERSION, true);
+    /* No more inline publish_bind/publish_info here — both run in the
+     * worker on every CONNECTED (boot + reconnect) via on_cloud_connected_worker.
+     * Fixes the prior reconnect-no-rebind bug. */
 
     LOGI("sentino engine initialized\n");
 }

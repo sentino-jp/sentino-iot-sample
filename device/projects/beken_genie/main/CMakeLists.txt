@@ -13,6 +13,11 @@ if (CONFIG_SENTINO_IOT)
 list(APPEND srcs
     app_dp_handler.c
 )
+if (CONFIG_BAT_MONITOR)
+list(APPEND srcs
+    app_battery_dp.c
+)
+endif()
 endif()
 endif()
 
