@@ -865,6 +865,14 @@ static void app_event_thread(beken_thread_arg_t data)
                     LOGI("APP_EVT_SYNC_FLASH\n");
                     bk_sconf_sync_flash_safely();
                     break;
+#if CONFIG_SENTINO_IOT
+                case APP_EVT_VOLUME_CHANGED:
+                    LOGI("APP_EVT_VOLUME_CHANGED local=%u\n", msg.param);
+                    extern void app_dp_request_volume_report(unsigned char);
+                    app_dp_request_volume_report((unsigned char)msg.param);
+                    skip_countdown_update = true;
+                    break;
+#endif
                 default:
                     break;
             }

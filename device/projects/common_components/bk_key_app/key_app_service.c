@@ -140,6 +140,11 @@ static void handle_system_event(key_event_t event)
 #if CONFIG_A2DP_SINK_DEMO
                 bk_bt_app_avrcp_ct_vol_change(volume);
 #endif
+                /* Notify cloud-DP layer of local volume change. param =
+                 * new local level; mapping to cloud range happens in the
+                 * worker handler (avoids pulling DP_ID/mapping into this
+                 * common-component file). */
+                app_event_send_msg(APP_EVT_VOLUME_CHANGED, volume);
             }
         }
             break;
@@ -152,6 +157,7 @@ static void handle_system_event(key_event_t event)
 #if CONFIG_A2DP_SINK_DEMO
                 bk_bt_app_avrcp_ct_vol_change(volume);
 #endif
+                app_event_send_msg(APP_EVT_VOLUME_CHANGED, volume);
             }
         }
             break;

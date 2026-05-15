@@ -13,7 +13,7 @@
 
 #define TAG "sentino_mqtt"
 
-#define LOGI(format, ...) BK_LOGW(TAG, format "\n", ##__VA_ARGS__)
+#define LOGI(format, ...) BK_LOGI(TAG, format "\n", ##__VA_ARGS__)
 #define LOGE(format, ...) BK_LOGE(TAG, format "\n", ##__VA_ARGS__)
 #define LOGW(format, ...) BK_LOGW(TAG, format "\n", ##__VA_ARGS__)
 #define LOGD(format, ...) BK_LOGD(TAG, format "\n", ##__VA_ARGS__)
@@ -54,6 +54,7 @@ static struct {
     sentino_rtc_params_t *rtc_access_result;
 
     sentino_issue_handler_t issue_handler;
+    void (*connected_cb)(void);
 
     bool initialized;
 } s_mqtt = {0};
@@ -234,6 +235,11 @@ static void on_mqtts_event(void *user, mqtts_event_t evt, int arg)
     switch (evt) {
     case MQTTS_EVT_CONNECTED:
         LOGI("mqtts connected");
+        if (s_mqtt.connected_cb) {
+            /* Fired in reader task w/ io_mutex held — cb must NOT publish
+             * synchronously. Engine dispatches to app_event worker. */
+            s_mqtt.connected_cb();
+        }
         break;
     case MQTTS_EVT_DISCONNECTED:
         LOGW("mqtts disconnected (reason=%d)", arg);
@@ -573,6 +579,11 @@ int sentino_mqtt_publish_issue_response(const char *id, const char *code,
 void sentino_mqtt_register_issue_handler(sentino_issue_handler_t handler)
 {
     s_mqtt.issue_handler = handler;
+}
+
+void sentino_mqtt_register_connected_cb(void (*cb)(void))
+{
+    s_mqtt.connected_cb = cb;
 }
 
 
