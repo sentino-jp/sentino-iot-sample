@@ -124,7 +124,7 @@ extern bk_err_t agora_stop(void);
 static app_evt_info_t app_evt_info;
 
 #if CONFIG_SENTINO_IOT
-#include "sentino_iot_engine.h"
+#include "sentino_engine_import.h"
 #endif
 
 bk_err_t app_event_send_msg(uint32_t event, uint32_t param)
@@ -502,7 +502,7 @@ static void app_event_thread(beken_thread_arg_t data)
                 case APP_EVT_CONVOAI_CONFIG_LOADING:
                     LOGI("APP_EVT_CONVOAI_CONFIG_LOADING\n");
 #if CONFIG_SENTINO_IOT
-                    sentino_iot_engine_init();
+                    sentino_engine_init();
 #endif
                     break;
                 case APP_EVT_CONVOAI_START_TIMER_EXPIRE:
@@ -511,7 +511,7 @@ static void app_event_thread(beken_thread_arg_t data)
                 case APP_EVT_CONVOAI_EXIT:
                     LOGI("APP_EVT_CONVOAI_EXIT\n");
 #if CONFIG_SENTINO_IOT
-                    sentino_iot_engine_stop();
+                    sentino_engine_stop();
 #endif
                     break;
                 case APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE:
@@ -553,7 +553,7 @@ static void app_event_thread(beken_thread_arg_t data)
                     bk_wifi_sta_pm_disable();
                     bk_wifi_set_wifi_media_mode(true);
 #if CONFIG_SENTINO_IOT
-                    sentino_iot_engine_start();
+                    sentino_engine_start();
 #endif
 #if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
                     lvgl_app_init();
@@ -582,7 +582,7 @@ static void app_event_thread(beken_thread_arg_t data)
                     lvgl_app_deinit();
 #endif
 #if CONFIG_SENTINO_IOT
-                    sentino_iot_engine_stop();
+                    sentino_engine_stop();
 #endif
                     bk_wifi_set_wifi_media_mode(false);
                     bk_wifi_sta_pm_enable();
