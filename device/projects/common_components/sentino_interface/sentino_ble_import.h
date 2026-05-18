@@ -38,10 +38,9 @@ void sentino_ble_on_ble_write(const uint8_t *bytes, uint16_t len);
  * via proto. NULL-terminated SSID array is NOT required — pass count. */
 void sentino_ble_on_wifi_scan_done(const char * const *ssids, int count);
 
-/* Business call: WiFi STA acquired IP. Emits V1_STATUS_WIFI_CONNECTED (1006).
- * 1703 (MQTT) and 1801 (bind ack) are wired internally to cloud-side cbs —
- * no business-side call needed. */
-void sentino_ble_notify_wifi_connected(void);
+/* All three async status codes (1006 WiFi / 1703 MQTT / 1801 bind ack) are
+ * wired internally to app_event + sentino cbs at init time — no business or
+ * BSP call needed. */
 
 #ifdef __cplusplus
 }

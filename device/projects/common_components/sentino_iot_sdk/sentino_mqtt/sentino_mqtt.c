@@ -614,3 +614,18 @@ void sentino_provision_info_clear(void)
     bk_set_env_enhance(NVS_KEY_PROV_INFO, &zero, sizeof(zero));
     LOGW("provisioning info cleared");
 }
+
+void sentino_provision_set_bind(bool bound)
+{
+    sentino_provision_info_t info = {0};
+    sentino_provision_info_read(&info);
+    info.bind_state = bound ? 1 : 0;
+    sentino_provision_info_write(&info);
+}
+
+bool sentino_provision_get_bind(void)
+{
+    sentino_provision_info_t info = {0};
+    sentino_provision_info_read(&info);
+    return info.bind_state != 0;
+}

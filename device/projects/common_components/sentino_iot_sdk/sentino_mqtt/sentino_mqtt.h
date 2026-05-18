@@ -21,13 +21,19 @@ extern "C" {
 
 /* Three-tuple credentials live in sentino_dev_info.{h,c} (NVS-backed). */
 
-/* Provisioning info received from BLE (thing.network.set) */
+/* Provisioning info received from BLE (thing.network.set).
+ *
+ * NOTE: fields appended at the end on each version — readers MUST zero-init
+ * the struct before sentino_provision_info_read() so that pre-upgrade
+ * smaller NVS records leave new fields at 0. bind_state=0 (false) is the
+ * correct default for any device that hasn't yet seen a fresh bind ack. */
 typedef struct {
     char user_id[SENTINO_USER_ID_SIZE];
     char asset_id[SENTINO_ASSET_ID_SIZE];
     char mqtt_broker[SENTINO_BROKER_URL_SIZE];
     uint16_t mqtt_port;
     char pid[SENTINO_PID_SIZE];
+    uint8_t bind_state;   /* 0 = unbound, 1 = bound (set on bind ack res=0) */
 } sentino_provision_info_t;
 
 /* RTC parameters returned by cloud via MQTT report_response */
@@ -120,6 +126,12 @@ void sentino_mqtt_register_bind_ack_cb(sentino_bind_ack_cb_t cb);
 void sentino_provision_info_write(const sentino_provision_info_t *info);
 void sentino_provision_info_read(sentino_provision_info_t *info);
 void sentino_provision_info_clear(void);
+
+/* Convenience read-modify-write for the bind_state field only — the rest of
+ * the provision record is preserved. Used by the BLE async-status pipeline
+ * to record bind state after the cloud responds with code=bind, res=0. */
+void sentino_provision_set_bind(bool bound);
+bool sentino_provision_get_bind(void);
 
 #ifdef __cplusplus
 }
