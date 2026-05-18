@@ -6,12 +6,13 @@ list(APPEND srcs
     sentino_provision_import.c
     sentino_mqtt_import.c
     sentino_ble_import.c
+    sentino_engine_import.c
     sentino_rtc_export.c
     sentino_system_init.c
 )
 if (CONFIG_ENABLE_AGORA_DATASTREAM)
 list(APPEND srcs
-    sentino_conv_ai_command.c
+    sentino_device_command.c
 )
 endif()
 endif()

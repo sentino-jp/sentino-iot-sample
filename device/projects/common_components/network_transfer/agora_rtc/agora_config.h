@@ -3,8 +3,6 @@
 #include "agora_rtc_api.h"
 #include "audio_config.h"
 
-#define AGORA_CONVOAI_APP_VERSION           "1.0.3"
-
 #define CONFIG_AGENT_SERVER_URL             "http://170.9.21.118:8083"
 
 #define AGORA_CONVOAI_LOCAL_UID             1

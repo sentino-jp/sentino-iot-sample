@@ -245,7 +245,7 @@ void agora_main(void *args)
     bk_err_t ret = BK_OK;
     memory_free_show();
 
-    LOGI("version: v%s built at %s %s\n", AGORA_CONVOAI_APP_VERSION, __DATE__, __TIME__);
+    LOGI("built at %s %s\n", __DATE__, __TIME__);
 
     //service_opt.license_value[0] = '\0';
     agora_rtc_config.p_appid = configs->app_id;
