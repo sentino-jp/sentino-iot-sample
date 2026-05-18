@@ -27,6 +27,7 @@
 #include "bk_factory_config.h"
 #if CONFIG_SENTINO_IOT
 #include "sentino_provision_import.h"
+#include "sentino_ble_import.h"
 #endif
 #include "pan_user_config.h"
 
@@ -155,6 +156,21 @@ static int bk_genie_wlan_scan_done_handler(void *arg, event_module_t event_modul
     if (scan_result.ap_num == 0)
         goto exit;
 
+#if CONFIG_SENTINO_IOT
+    /* V1 JSON channel — phone receives thing.network.getwifis.response with
+     * all SSIDs in one fragmented frame. Old LV path below is kept for
+     * legacy clients. */
+    {
+        const char *ssids[64];
+        int count = 0;
+        for (int k = 0; k < scan_result.ap_num && count < (int)(sizeof(ssids) / sizeof(ssids[0])); k++) {
+            if (os_strlen(scan_result.aps[k].ssid) == 0) continue;
+            ssids[count++] = scan_result.aps[k].ssid;
+        }
+        sentino_ble_on_wifi_scan_done(ssids, count);
+    }
+#endif
+
 again:
     os_memset(payload, 0, 200);
     len = os_snprintf(payload, 200, "[");
@@ -225,6 +241,10 @@ static void bk_genie_message_handle(void)
                         bk_netif_get_ip4_config(netif_idx, &ip4_config);
                         LOGI("ip: %s\n", ip4_config.ip);
                         bk_genie_boarding_event_notify_with_data(BOARDING_OP_STATION_START, BK_OK, ip4_config.ip, strlen(ip4_config.ip));
+#if CONFIG_SENTINO_IOT
+                        /* V1 async notify (code=1006) — phone may be on V1 path. */
+                        sentino_ble_notify_wifi_connected();
+#endif
                     }
                 }
                 break;
