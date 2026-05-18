@@ -211,16 +211,9 @@ static void bk_genie_message_handle(void)
                         bk_genie_boarding_info_t *bk_genie_boarding_info = bk_genie_get_boarding_info();
                         bk_genie_wifi_sta_connect(bk_genie_boarding_info->boarding_info.ssid_value, bk_genie_boarding_info->boarding_info.password_value);
 
-#if CONFIG_SENTINO_IOT
-                        /* Sentino: persist userId, assetId, mqttUrl from BLE provisioning.
-                         * BLE fields are repurposed: auth_token_first_half → userId,
-                         * auth_token_second_half → assetId, agora_convoai_server_url → mqttUrl */
-                        sentino_provision_apply_from_ble(
-                            bk_genie_boarding_info->boarding_info.auth_token_first_half,
-                            bk_genie_boarding_info->boarding_info.auth_token_second_half,
-                            bk_genie_boarding_info->boarding_info.agora_convoai_server_url,
-                            0 /* default 8883/TLS */);
-#endif
+                        /* Sentino provision (userId/assetId/mqttUrl) is persisted by
+                         * sentino_ble_import on thing.network.set — no need to apply
+                         * here. */
 
                         bk_event_unregister_cb(EVENT_MOD_WIFI, EVENT_WIFI_SCAN_DONE, bk_genie_wlan_scan_done_handler);
 			} else {
@@ -293,14 +286,10 @@ static void bk_genie_message_handle(void)
                     LOGI("DBEVT_NET_PAN_REQUEST\n");
                     int status = 1;
 
-                    bk_genie_boarding_info_t *bk_genie_boarding_info = bk_genie_get_boarding_info();
-#if CONFIG_SENTINO_IOT
-                    sentino_provision_apply_from_ble(
-                        bk_genie_boarding_info->boarding_info.auth_token_first_half,
-                        bk_genie_boarding_info->boarding_info.auth_token_second_half,
-                        bk_genie_boarding_info->boarding_info.agora_convoai_server_url,
-                        0 /* default 8883/TLS */);
-#endif
+                    /* PAN-side provisioning (if any) would arrive via a separate
+                     * path; previously this re-applied BLE-stuffed boarding fields,
+                     * but post-refactor those fields are no longer populated by
+                     * the V1 BLE handler (adapter persists provision directly). */
 #if CONFIG_NET_PAN
                     bk_bt_enter_pairing_mode(1);
                     status = 0;

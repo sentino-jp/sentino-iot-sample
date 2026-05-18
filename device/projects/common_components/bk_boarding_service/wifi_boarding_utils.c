@@ -18,10 +18,12 @@
 #include "components/bluetooth/bk_dm_gatts.h"
 #include "components/bk_uid.h"
 #if CONFIG_SENTINO_IOT
+/* ADV/scan_rsp still embed PID + UUID from the device triple — those are
+ * identity, not protocol. The V1 protocol handler itself lives in
+ * sentino_iot_sdk/sentino_ble/ and is reached via sentino_ble_import. */
 #include "sentino_provision_import.h"
+#include "sentino_ble_import.h"
 #endif
-#include "sentino_ble_v1.h"
-#include "cJSON.h"
 
 #include "wifi_boarding_internal.h"
 #include "wifi_boarding_utils.h"
@@ -36,12 +38,6 @@ extern bool enable_ble_split_pkt;
 #define ADV_HANDLE 0
 
 /* Sentino Rlink BLE V1: GATT service 0x1910 with 0x2B11 (write) and 0x2B10 (notify) */
-static v1_assembler_t s_v1_assembler = {0};
-static uint16_t s_sentino_conn_ind = ~0;
-
-static void sentino_v1_send_response(const char *json_str);
-static void sentino_v1_send_status_code(int code);
-static void sentino_v1_handle_message(const char *json_str);
 
 
 #define BK_GATT_ATTR_TYPE(iuuid) {.len = BK_UUID_LEN_16, .uuid = {.uuid16 = iuuid}}
@@ -182,194 +178,43 @@ static int32_t dm_gatts_get_buff_from_attr_handle(bk_gatts_attr_db_t *attr_list,
     return 0;
 }
 
-/*
- * Sentino V1 JSON message handler.
- * Dispatches device.information.get, thing.network.set, thing.network.getwifis,
- * thing.property.get, thing.property.set messages.
- */
-static void sentino_v1_handle_message(const char *json_str)
+/* BSP-side fn pointers handed to the adapter at init. Adapter calls these
+ * back when the phone sends thing.network.set / thing.network.getwifis. */
+#if CONFIG_SENTINO_IOT
+static void bsp_indicate(const uint8_t *data, uint16_t len)
 {
-    wboard_logi("V1 RX: %s", json_str);
-
-    cJSON *root = cJSON_Parse(json_str);
-    if (!root) {
-        wboard_loge("V1 JSON parse failed");
-        sentino_v1_send_status_code(V1_STATUS_JSON_PARSE_FAIL);
+    if (s_conn_ind == (uint16_t)~0) {
+        wboard_loge("BLE not connected, can not indicate");
         return;
     }
-
-    sentino_v1_send_status_code(V1_STATUS_JSON_PARSED);
-
-    cJSON *type = cJSON_GetObjectItem(root, "type");
-    if (!type || (type->type & 0xFF) != cJSON_String) {
-        wboard_loge("V1 message missing 'type'");
-        cJSON_Delete(root);
-        return;
-    }
-
-    if (0 == strcmp(type->valuestring, "device.information.get")) {
-        /* Respond with device info */
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddStringToObject(resp, "type", "device.information.get.response");
-        cJSON *data = cJSON_AddObjectToObject(resp, "data");
-        cJSON_AddStringToObject(data, "pid", sentino_provision_get_pid());
-        cJSON_AddStringToObject(data, "version", "1.0.3");
-        cJSON_AddBoolToObject(data, "bind", false);
-
-        /* Get WiFi MAC */
-        uint8_t mac[6] = {0};
-        bk_get_mac(mac, MAC_TYPE_BASE);
-        char mac_str[20];
-        snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
-                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        cJSON_AddStringToObject(data, "wifi_mac", mac_str);
-
-        /* Get BLE MAC */
-        uint8_t ble_mac[6] = {0};
-        bk_get_mac(ble_mac, MAC_TYPE_BLUETOOTH);
-        snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
-                 ble_mac[0], ble_mac[1], ble_mac[2], ble_mac[3], ble_mac[4], ble_mac[5]);
-        cJSON_AddStringToObject(data, "ble_mac", mac_str);
-
-        char *resp_str = cJSON_PrintUnformatted(resp);
-        sentino_v1_send_response(resp_str);
-        cJSON_free(resp_str);
-        cJSON_Delete(resp);
-    }
-    else if (0 == strcmp(type->valuestring, "thing.network.set")) {
-        /* Provisioning: extract sid, pw, bid, userId, mq, port */
-        cJSON *data = cJSON_GetObjectItem(root, "data");
-        if (!data) {
-            wboard_loge("thing.network.set missing 'data'");
-            cJSON_Delete(root);
-            return;
-        }
-
-        cJSON *sid = cJSON_GetObjectItem(data, "sid");
-        cJSON *pw = cJSON_GetObjectItem(data, "pw");
-        cJSON *bid = cJSON_GetObjectItem(data, "bid");
-        cJSON *userId = cJSON_GetObjectItem(data, "userId");
-        cJSON *mq = cJSON_GetObjectItem(data, "mq");
-        __maybe_unused cJSON *port = cJSON_GetObjectItem(data, "port");
-
-        /* Store in boarding info for the existing boarding_core flow */
-        if (s_ble_boarding_info) {
-            if (sid && (sid->type & 0xFF) == cJSON_String) {
-                if (s_ble_boarding_info->ssid_value) os_free(s_ble_boarding_info->ssid_value);
-                s_ble_boarding_info->ssid_value = os_strdup(sid->valuestring);
-                s_ble_boarding_info->ssid_length = strlen(sid->valuestring);
-            }
-            if (pw && (pw->type & 0xFF) == cJSON_String) {
-                if (s_ble_boarding_info->password_value) os_free(s_ble_boarding_info->password_value);
-                s_ble_boarding_info->password_value = os_strdup(pw->valuestring);
-                s_ble_boarding_info->password_length = strlen(pw->valuestring);
-            }
-            /* Repurpose auth_token fields for Sentino data */
-            if (userId && (userId->type & 0xFF) == cJSON_String) {
-                if (s_ble_boarding_info->auth_token_first_half) os_free(s_ble_boarding_info->auth_token_first_half);
-                s_ble_boarding_info->auth_token_first_half = os_strdup(userId->valuestring);
-            }
-            if (bid && (bid->type & 0xFF) == cJSON_String) {
-                if (s_ble_boarding_info->auth_token_second_half) os_free(s_ble_boarding_info->auth_token_second_half);
-                s_ble_boarding_info->auth_token_second_half = os_strdup(bid->valuestring);
-            }
-            if (mq && (mq->type & 0xFF) == cJSON_String) {
-                if (s_ble_boarding_info->agora_convoai_server_url) os_free(s_ble_boarding_info->agora_convoai_server_url);
-                s_ble_boarding_info->agora_convoai_server_url = os_strdup(mq->valuestring);
-                s_ble_boarding_info->agora_convoai_server_length = strlen(mq->valuestring);
-            }
-        }
-
-        /* Send response */
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddStringToObject(resp, "type", "thing.network.set.response");
-        cJSON_AddNumberToObject(resp, "code", 0);
-        char *resp_str = cJSON_PrintUnformatted(resp);
-        sentino_v1_send_response(resp_str);
-        cJSON_free(resp_str);
-        cJSON_Delete(resp);
-
-        /* Trigger WiFi connection via boarding_core */
-        if (s_ble_boarding_info && s_ble_boarding_info->cb) {
-            /* Send BOARDING_OP_STATION_START with param=0 to trigger WiFi connect */
-            s_ble_boarding_info->cb(BOARDING_OP_STATION_START, 0, NULL);
-        }
-    }
-    else if (0 == strcmp(type->valuestring, "thing.network.getwifis")) {
-        /* WiFi scan request — trigger scan via boarding_core */
-        if (s_ble_boarding_info && s_ble_boarding_info->cb) {
-            s_ble_boarding_info->cb(BOARDING_OP_START_WIFI_SCAN, 0, NULL);
-        }
-    }
-    else if (0 == strcmp(type->valuestring, "thing.property.get")) {
-        /* Property get — return empty for now */
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddStringToObject(resp, "type", "thing.property.get.response");
-        cJSON_AddNumberToObject(resp, "code", 0);
-        cJSON_AddObjectToObject(resp, "data");
-        char *resp_str = cJSON_PrintUnformatted(resp);
-        sentino_v1_send_response(resp_str);
-        cJSON_free(resp_str);
-        cJSON_Delete(resp);
-    }
-    else {
-        wboard_logw("V1 unknown message type: %s", type->valuestring);
-    }
-
-    cJSON_Delete(root);
+    bk_ble_gatts_send_indicate(s_gatts_if, s_conn_ind, s_char_attr_handle,
+                               len, (uint8_t *)data, 0);
 }
 
-static void sentino_v1_send_response(const char *json_str)
+static void bsp_wifi_connect(const char *sid, const char *pw)
 {
-    if (s_sentino_conn_ind == (uint16_t)~0) {
-        wboard_loge("BLE not connected, cannot send V1 response");
-        return;
-    }
+    if (!s_ble_boarding_info) return;
+    if (s_ble_boarding_info->ssid_value) os_free(s_ble_boarding_info->ssid_value);
+    s_ble_boarding_info->ssid_value  = os_strdup(sid ? sid : "");
+    s_ble_boarding_info->ssid_length = strlen(s_ble_boarding_info->ssid_value);
+    if (s_ble_boarding_info->password_value) os_free(s_ble_boarding_info->password_value);
+    s_ble_boarding_info->password_value  = os_strdup(pw ? pw : "");
+    s_ble_boarding_info->password_length = strlen(s_ble_boarding_info->password_value);
 
-    wboard_logi("V1 TX: %s", json_str);
-
-    /* Encode JSON into V1 packets */
-    int data_len = strlen(json_str);
-    int total_packets = (data_len + V1_MAX_PAYLOAD - 1) / V1_MAX_PAYLOAD;
-
-    for (int sn = 0; sn < total_packets; sn++) {
-        int offset = sn * V1_MAX_PAYLOAD;
-        int chunk_len = data_len - offset;
-        if (chunk_len > V1_MAX_PAYLOAD) chunk_len = V1_MAX_PAYLOAD;
-        int pkt_len = V1_HEADER_SIZE + chunk_len + 1;
-
-        uint8_t pkt[V1_MAX_PACKET];
-        pkt[0] = V1_HEAD;
-        pkt[1] = V1_TYPE;
-        pkt[2] = (sn >> 8) & 0xFF;
-        pkt[3] = sn & 0xFF;
-        pkt[4] = (total_packets >> 8) & 0xFF;
-        pkt[5] = total_packets & 0xFF;
-        pkt[6] = (data_len >> 8) & 0xFF;
-        pkt[7] = data_len & 0xFF;
-        pkt[8] = (uint8_t)chunk_len;
-        memcpy(&pkt[V1_HEADER_SIZE], json_str + offset, chunk_len);
-
-        /* CRC: sum of bytes from TYPE to end of DATA */
-        uint32_t crc_sum = 0;
-        for (int i = 1; i < pkt_len - 1; i++) crc_sum += pkt[i];
-        pkt[pkt_len - 1] = (uint8_t)(crc_sum & 0xFF);
-
-        bk_ble_gatts_send_indicate(s_gatts_if, s_sentino_conn_ind, s_char_attr_handle,
-                                    pkt_len, pkt, 0);
-
-        if (sn < total_packets - 1) {
-            rtos_delay_milliseconds(20);
-        }
+    if (s_ble_boarding_info->cb) {
+        /* msg.param=0 → boarding_core's BOARDING_OP_STATION_START handler
+         * will read ssid/password we just populated and start WiFi STA. */
+        s_ble_boarding_info->cb(BOARDING_OP_STATION_START, 0, NULL);
     }
 }
 
-static void sentino_v1_send_status_code(int code)
+static void bsp_wifi_scan(void)
 {
-    char json[64];
-    snprintf(json, sizeof(json), "{\"code\":%d}", code);
-    sentino_v1_send_response(json);
+    if (s_ble_boarding_info && s_ble_boarding_info->cb) {
+        s_ble_boarding_info->cb(BOARDING_OP_START_WIFI_SCAN, 0, NULL);
+    }
 }
+#endif /* CONFIG_SENTINO_IOT */
 
 static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t gatts_if, bk_ble_gatts_cb_param_t *comm_param)
 {
@@ -481,14 +326,9 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
                 bk_ble_gatts_send_response(gatts_if, param->conn_id, param->trans_id, BK_GATT_OK, &wr_rsp);
             }
 
-            char *json_str = NULL;
-            int result = v1_assembler_feed(&s_v1_assembler, param->value, param->len, &json_str);
-            if (result == 1 && json_str) {
-                sentino_v1_handle_message(json_str);
-                os_free(json_str);
-            } else if (result < 0) {
-                wboard_loge("V1 packet error");
-            }
+#if CONFIG_SENTINO_IOT
+            sentino_ble_on_ble_write(param->value, param->len);
+#endif
             break;
         } else if (s_char_desc_attr_handle == param->handle) {
             /* CCCD write — enable notifications */
@@ -561,8 +401,9 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
                     param->conn_id);
 
         s_conn_ind = param->conn_id;
-        s_sentino_conn_ind = param->conn_id;
-        v1_assembler_reset(&s_v1_assembler);
+#if CONFIG_SENTINO_IOT
+        sentino_ble_on_ble_connect();
+#endif
     }
     break;
 
@@ -581,7 +422,9 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
                    );
 
         s_conn_ind = ~0;
-        s_sentino_conn_ind = ~0;
+#if CONFIG_SENTINO_IOT
+        sentino_ble_on_ble_disconnect();
+#endif
     }
     break;
 
@@ -774,7 +617,6 @@ static void dm_ble_gap_common_cb(bk_ble_gap_cb_event_t event, bk_ble_gap_cb_para
 
 }
 
-#if CONFIG_BT//dm
 int wifi_boarding_init(ble_boarding_info_t *info)
 {
     bt_err_t ret = BK_FAIL;
@@ -838,6 +680,10 @@ int wifi_boarding_init(ble_boarding_info_t *info)
         return -1;
     }
 
+#if CONFIG_SENTINO_IOT
+    sentino_ble_init(bsp_indicate, bsp_wifi_connect, bsp_wifi_scan);
+#endif
+
     return BK_OK;
 }
 
@@ -846,6 +692,10 @@ int wifi_boarding_deinit(void)
     int32_t ret = 0;
 
     wboard_logw("");
+
+#if CONFIG_SENTINO_IOT
+    sentino_ble_deinit();
+#endif
 
     if (s_ble_boarding_info->ssid_value)
     {
@@ -896,8 +746,6 @@ int wifi_boarding_deinit(void)
     s_char_attr_handle = INVALID_ATTR_HANDLE;
     s_char_desc_attr_handle = INVALID_ATTR_HANDLE;
     s_char_write_char_handle = INVALID_ATTR_HANDLE;
-    v1_assembler_reset(&s_v1_assembler);
-    s_sentino_conn_ind = ~0;
 
     return BK_OK;
 }
@@ -1216,7 +1064,7 @@ int wifi_boarding_adv_stop(void)
 
 int wifi_boarding_notify(uint8_t *data, uint16_t length)
 {
-    if (s_conn_ind == 0xFF)
+    if (s_conn_ind == (uint16_t)~0)
     {
         wboard_loge("BLE is disconnected, can not send data !!!");
         return BK_FAIL;
@@ -1229,128 +1077,3 @@ int wifi_boarding_notify(uint8_t *data, uint16_t length)
     }
 }
 
-#else//ble
-int ble_boarding_init(ble_boarding_info_t *info);
-int ble_boarding_deinit(void);
-int ble_boarding_adv_start(uint8_t *adv_data, uint16_t adv_len);
-int ble_boarding_adv_stop(void);
-int ble_boarding_notify(uint8_t *data, uint16_t length);
-
-#define ADV_MAX_SIZE (251)
-#define ADV_NAME_HEAD "bk_genie"
-
-#define ADV_TYPE_FLAGS                      (0x01)
-#define ADV_TYPE_LOCAL_NAME                 (0x09)
-#define ADV_TYPE_SERVICE_UUIDS_16BIT        (0x14)
-#define ADV_TYPE_SERVICE_DATA               (0x16)
-#define ADV_TYPE_MANUFACTURER_SPECIFIC      (0xFF)
-
-#define BEKEN_COMPANY_ID                    (0x05F0)
-
-#define BOARDING_UUID                       (0xFE01)
-
-int wifi_boarding_init(ble_boarding_info_t *info)
-{
-    bt_err_t ret = BK_FAIL;
-
-    wboard_logi("%s\n", __func__);
-    enable_ble_split_pkt = false;
-    ret = ble_boarding_init(info);
-    return ret;
-}
-
-int wifi_boarding_deinit()
-{
-    int32_t ret = 0;
-
-    wboard_logw("");
-    ret = ble_boarding_deinit();
-    return ret;
-}
-
-int wifi_boarding_adv_start(void)
-{
-    uint8_t adv_data[ADV_MAX_SIZE] = {0};
-    uint8_t adv_index = 0;
-    uint8_t len_index = 0;
-    uint8_t mac[6];
-    int ret;
-
-
-    wboard_logi("%s\n", __func__);
-
-    /* flags */
-    len_index = adv_index;
-    adv_data[adv_index++] = 0x00;
-    adv_data[adv_index++] = ADV_TYPE_FLAGS;
-    adv_data[adv_index++] = 0x06;
-    adv_data[len_index] = 2;
-
-    /* local name */
-    bk_bluetooth_get_address(mac);
-
-    len_index = adv_index;
-    adv_data[adv_index++] = 0x00;
-    adv_data[adv_index++] = ADV_TYPE_LOCAL_NAME;
-
-    ret = sprintf((char *)&adv_data[adv_index], "%s_%02X%02X%02X",
-                  ADV_NAME_HEAD, mac[0], mac[1], mac[2]);
-
-    adv_index += ret;
-    adv_data[len_index] = ret + 1;
-
-    /* 16bit uuid */
-    len_index = adv_index;
-    adv_data[adv_index++] = 0x00;
-    adv_data[adv_index++] = ADV_TYPE_SERVICE_DATA;
-    adv_data[adv_index++] = BOARDING_UUID & 0xFF;
-    adv_data[adv_index++] = BOARDING_UUID >> 8;
-    adv_data[len_index] = 3;
-
-    /* manufacturer */
-    len_index = adv_index;
-    adv_data[adv_index++] = 0x00;
-    adv_data[adv_index++] = ADV_TYPE_MANUFACTURER_SPECIFIC;
-    adv_data[adv_index++] = BEKEN_COMPANY_ID & 0xFF;
-    adv_data[adv_index++] = BEKEN_COMPANY_ID >> 8;
-    adv_data[len_index] = 3;
-
-    /*
-    os_printf("adv data:\n");
-
-    int i = 0;
-    for (i = 0; i < adv_index; i++)
-    {
-        os_printf("%02X ", adv_data[i]);
-    }
-
-    os_printf("\n");
-    */
-    ble_boarding_adv_stop();
-
-    ret = ble_boarding_adv_start(adv_data, adv_index);
-
-    return ret;
-}
-
-int wifi_boarding_adv_stop(void)
-{
-    int32_t ret = 0;
-
-    if(bk_bluetooth_get_status() != BK_BLUETOOTH_STATUS_ENABLED)
-    {
-        wboard_loge("bluetooth not init !!!");
-        return BK_FAIL;
-    }
-
-    ret = ble_boarding_adv_stop();
-
-    return ret;
-}
-
-int wifi_boarding_notify(uint8_t *data, uint16_t length)
-{
-    return ble_boarding_notify(data, length);
-}
-
-#endif
