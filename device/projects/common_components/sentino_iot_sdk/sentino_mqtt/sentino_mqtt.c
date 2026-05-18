@@ -55,6 +55,7 @@ static struct {
 
     sentino_issue_handler_t issue_handler;
     void (*connected_cb)(void);
+    sentino_bind_ack_cb_t   bind_ack_cb;
 
     bool initialized;
 } s_mqtt = {0};
@@ -168,6 +169,7 @@ static void handle_report_response_payload(const char *payload, int payload_len)
         cJSON *res = cJSON_GetObjectItem(root, "res");
         if (res && (res->type & 0xFF) == cJSON_Number) {
             LOGI("bind response: res=%d", res->valueint);
+            if (s_mqtt.bind_ack_cb) s_mqtt.bind_ack_cb(res->valueint);
         }
     }
 
@@ -586,6 +588,11 @@ void sentino_mqtt_register_connected_cb(void (*cb)(void))
     s_mqtt.connected_cb = cb;
 }
 
+void sentino_mqtt_register_bind_ack_cb(sentino_bind_ack_cb_t cb)
+{
+    s_mqtt.bind_ack_cb = cb;
+}
+
 
 /* ────────────────────────────────────────────────────────────────────
  *  Provisioning info persistence (NVS)
@@ -606,4 +613,19 @@ void sentino_provision_info_clear(void)
     sentino_provision_info_t zero = {0};
     bk_set_env_enhance(NVS_KEY_PROV_INFO, &zero, sizeof(zero));
     LOGW("provisioning info cleared");
+}
+
+void sentino_provision_set_bind(bool bound)
+{
+    sentino_provision_info_t info = {0};
+    sentino_provision_info_read(&info);
+    info.bind_state = bound ? 1 : 0;
+    sentino_provision_info_write(&info);
+}
+
+bool sentino_provision_get_bind(void)
+{
+    sentino_provision_info_t info = {0};
+    sentino_provision_info_read(&info);
+    return info.bind_state != 0;
 }

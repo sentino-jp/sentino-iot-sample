@@ -10,9 +10,9 @@
 
 #include "cJSON.h"
 #include "mbedtls/base64.h"
-#include "sentino_conv_ai_command.h"
+#include "sentino_device_command.h"
 
-#define TAG "conv_ai_cmd"
+#define TAG "dev_cmd"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
@@ -30,10 +30,10 @@ typedef struct {
  * borrow it. Producer (agora_rtc.c) also reaches it via extern. */
 extern beken_queue_t datastream_queue;
 
-static beken_thread_t        s_worker_thread = NULL;
-static bk_conv_ai_executor_t s_executor_cb   = NULL;
+static beken_thread_t                    s_worker_thread = NULL;
+static sentino_device_command_executor_t s_executor_cb   = NULL;
 
-int bk_conv_ai_command_register_executor(bk_conv_ai_executor_t cb)
+int sentino_device_command_register_executor(sentino_device_command_executor_t cb)
 {
     s_executor_cb = cb;
     return 0;
@@ -294,7 +294,7 @@ static void conv_ai_cmd_thread(beken_thread_arg_t arg)
     }
 }
 
-int bk_conv_ai_command_init(void)
+int sentino_device_command_init(void)
 {
     if (s_worker_thread) {
         return 0;       /* idempotent */

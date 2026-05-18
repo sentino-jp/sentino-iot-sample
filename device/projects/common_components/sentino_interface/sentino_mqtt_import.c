@@ -28,3 +28,8 @@ void Register_Sentino_Cloud_Ready_Cb(void (*cb)(void))
 {
     sentino_engine_register_cloud_ready_cb(cb);
 }
+
+void Register_Sentino_Bind_Ack_Cb(void (*cb)(int res))
+{
+    sentino_mqtt_register_bind_ack_cb(cb);
+}
