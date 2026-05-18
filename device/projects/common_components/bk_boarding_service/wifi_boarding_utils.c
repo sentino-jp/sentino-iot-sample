@@ -433,6 +433,14 @@ static int32_t wifi_boarding_gatts_cb(bk_gatts_cb_event_t event, bk_gatt_if_t ga
         struct gatts_mtu_evt_param *param = (typeof(param))comm_param;
 
         wboard_logi("BK_GATTS_MTU_EVT %d %d", param->conn_id, param->mtu);
+        /* V1 max packet = 128B → requires ATT MTU >= 131 (3B ATT header).
+         * Below that, multi-byte writes will be truncated by the BLE stack
+         * and the phone will see CRC errors. Default ATT MTU is 23 — most
+         * modern stacks (Chrome Web Bluetooth, flutter_blue_plus) auto-bump
+         * to 247, but log defensively if a client doesn't. */
+        if (param->mtu < 131) {
+            wboard_loge("ATT MTU %u < 131 — V1 frames may be truncated", param->mtu);
+        }
     }
     break;
 

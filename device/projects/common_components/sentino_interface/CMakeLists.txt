@@ -24,5 +24,5 @@ armino_component_register(
     # #include "sentino_mqtt_dp.h" — consumers (main, etc.) need that
     # include path too.
     REQUIRES sentino_iot_sdk
-    PRIV_REQUIRES bk_common network_transfer agora-iot-sdk audio_engine main json psa_mbedtls
+    PRIV_REQUIRES bk_common bk_app_event network_transfer agora-iot-sdk audio_engine main json psa_mbedtls
 )

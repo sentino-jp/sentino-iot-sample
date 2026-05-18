@@ -23,6 +23,10 @@ extern "C" {
  * (rino_iot_process.c PRODUCT_KEY); Sentino does the same. */
 #define SENTINO_DEFAULT_PID         "OQm9yRoaLq1gbK"
 
+/* Firmware version string. Reported in MQTT bind/info messages and in
+ * device.information.get BLE response. Bump on release. */
+#define SENTINO_FW_VERSION          "1.0.3"
+
 #ifdef SENTINO_TRIPLE_TEST
 #define SENTINO_TEST_PID            SENTINO_DEFAULT_PID
 #define SENTINO_TEST_UUID           "ct01VWfvv171KS7s"

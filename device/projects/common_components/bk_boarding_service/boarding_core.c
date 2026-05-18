@@ -241,10 +241,6 @@ static void bk_genie_message_handle(void)
                         bk_netif_get_ip4_config(netif_idx, &ip4_config);
                         LOGI("ip: %s\n", ip4_config.ip);
                         bk_genie_boarding_event_notify_with_data(BOARDING_OP_STATION_START, BK_OK, ip4_config.ip, strlen(ip4_config.ip));
-#if CONFIG_SENTINO_IOT
-                        /* V1 async notify (code=1006) — phone may be on V1 path. */
-                        sentino_ble_notify_wifi_connected();
-#endif
                     }
                 }
                 break;

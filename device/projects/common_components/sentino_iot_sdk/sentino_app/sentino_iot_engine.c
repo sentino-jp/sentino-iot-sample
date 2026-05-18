@@ -10,11 +10,6 @@
 
 #include "app_event.h"
 
-/* Firmware version reported in MQTT bind/info messages. The Sentino SDK
- * owns this — it must NOT reach into agora_rtc/agora_config.h. Bump on
- * release; later phases will expose it via sentino_iot_common.h. */
-#define SENTINO_FW_VERSION  "1.0.3"
-
 #define TAG "sentino_iot"
 #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
 #define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)

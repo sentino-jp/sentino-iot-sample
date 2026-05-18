@@ -10,7 +10,8 @@
 #include "cJSON.h"
 #include "sentino_ble_proto.h"
 #include "sentino_ble_v1.h"
-#include "sentino_dev_info.h"    /* SDK-internal: get_triple + SENTINO_DEFAULT_PID */
+#include "sentino_dev_info.h"    /* SDK-internal: get_triple + SENTINO_DEFAULT_PID + SENTINO_FW_VERSION */
+#include "sentino_mqtt.h"        /* SDK-internal: sentino_provision_get_bind */
 
 #define TAG "ble_proto"
 
@@ -70,8 +71,8 @@ static void handle_device_information_get(void)
     cJSON_AddStringToObject(resp, "type", "device.information.get.response");
     cJSON *data = cJSON_AddObjectToObject(resp, "data");
     cJSON_AddStringToObject(data, "pid",     get_pid());
-    cJSON_AddStringToObject(data, "version", "1.0.3");
-    cJSON_AddBoolToObject  (data, "bind",    false);
+    cJSON_AddStringToObject(data, "version", SENTINO_FW_VERSION);
+    cJSON_AddBoolToObject  (data, "bind",    sentino_provision_get_bind());
 
     uint8_t mac[6] = {0};
     char    buf[20];
