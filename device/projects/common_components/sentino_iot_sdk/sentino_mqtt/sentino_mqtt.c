@@ -55,6 +55,7 @@ static struct {
 
     sentino_issue_handler_t issue_handler;
     void (*connected_cb)(void);
+    sentino_bind_ack_cb_t   bind_ack_cb;
 
     bool initialized;
 } s_mqtt = {0};
@@ -168,6 +169,7 @@ static void handle_report_response_payload(const char *payload, int payload_len)
         cJSON *res = cJSON_GetObjectItem(root, "res");
         if (res && (res->type & 0xFF) == cJSON_Number) {
             LOGI("bind response: res=%d", res->valueint);
+            if (s_mqtt.bind_ack_cb) s_mqtt.bind_ack_cb(res->valueint);
         }
     }
 
@@ -584,6 +586,11 @@ void sentino_mqtt_register_issue_handler(sentino_issue_handler_t handler)
 void sentino_mqtt_register_connected_cb(void (*cb)(void))
 {
     s_mqtt.connected_cb = cb;
+}
+
+void sentino_mqtt_register_bind_ack_cb(sentino_bind_ack_cb_t cb)
+{
+    s_mqtt.bind_ack_cb = cb;
 }
 
 

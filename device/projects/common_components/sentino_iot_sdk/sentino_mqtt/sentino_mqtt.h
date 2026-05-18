@@ -109,6 +109,13 @@ void sentino_mqtt_register_issue_handler(sentino_issue_handler_t handler);
  *  latest call wins. NULL clears. */
 void sentino_mqtt_register_connected_cb(void (*cb)(void));
 
+/** Register a hook fired when the cloud responds to the bind publish
+ *  (code=bind, res=N in the report_response topic). res is the cloud
+ *  result code — 0 means success. Same calling-context rule as
+ *  register_connected_cb: don't publish synchronously. NULL clears. */
+typedef void (*sentino_bind_ack_cb_t)(int res);
+void sentino_mqtt_register_bind_ack_cb(sentino_bind_ack_cb_t cb);
+
 /* Provisioning info persistence (NVS) */
 void sentino_provision_info_write(const sentino_provision_info_t *info);
 void sentino_provision_info_read(sentino_provision_info_t *info);

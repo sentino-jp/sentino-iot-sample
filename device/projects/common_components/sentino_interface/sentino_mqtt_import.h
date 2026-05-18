@@ -49,6 +49,12 @@ int  Sentino_Nfc_Report_Export(const unsigned char *nfc_id, int len, int only_re
  * context — safe to publish synchronously here. */
 void Register_Sentino_Cloud_Ready_Cb(void (*cb)(void));
 
+/* Register a handler for the cloud's response to publish_bind (code=bind,
+ * res=N). res==0 means bind succeeded. Wraps the SDK's
+ * sentino_mqtt_register_bind_ack_cb. Same context rule — don't publish
+ * synchronously from the cb. */
+void Register_Sentino_Bind_Ack_Cb(void (*cb)(int res));
+
 #ifdef __cplusplus
 }
 #endif

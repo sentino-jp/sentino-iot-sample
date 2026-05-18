@@ -4,6 +4,7 @@
 #include "sentino_ble_proto.h"          /* SDK */
 #include "sentino_ble_v1.h"             /* V1_STATUS_* */
 #include "sentino_provision_import.h"   /* adapter — provision persistence */
+#include "sentino_mqtt_import.h"        /* adapter — Register_Sentino_Cloud_Ready_Cb */
 
 static sentino_ble_wifi_connect_fn_t s_wifi_connect = NULL;
 static sentino_ble_wifi_scan_fn_t    s_wifi_scan    = NULL;
@@ -27,6 +28,21 @@ static void on_wifi_scan_request(void)
     if (s_wifi_scan) s_wifi_scan();
 }
 
+/* MQTT-up signal — fires once per CONNECTED (boot + every reconnect). The
+ * phone may have moved on (Web stays connected to capture this; Flutter
+ * disconnects after thing.network.set so the indicate is a noop there). */
+static void on_cloud_ready(void)
+{
+    sentino_ble_proto_emit_status(V1_STATUS_MQTT_CONNECTED);
+}
+
+/* Cloud bind ack — res==0 means cloud accepted bind. Only emit success
+ * over BLE; non-zero leaves the phone on its REST polling fallback. */
+static void on_bind_ack(int res)
+{
+    if (res == 0) sentino_ble_proto_emit_status(V1_STATUS_BIND_SUCCESS);
+}
+
 /* ── BSP-facing API ────────────────────────────────────────────── */
 
 void sentino_ble_init(sentino_ble_indicate_fn_t     indicate_fn,
@@ -43,10 +59,12 @@ void sentino_ble_init(sentino_ble_indicate_fn_t     indicate_fn,
     };
     sentino_ble_proto_init(&ops);
 
-    /* Step 4/5 will hook 1703 + 1801 here:
-     *   Register_Sentino_Cloud_Ready_Cb(on_cloud_ready);
-     *   Register_Sentino_Bind_Ack_Cb(on_bind_ack);
-     */
+    /* 1703 = MQTT_CONNECTED via cloud-ready hook (engine fires after
+     * bind+info pushed on a fresh CONNECTED).
+     * 1801 = BIND_SUCCESS via mqtt bind-ack hook (cloud responds to our
+     * publish_bind with code=bind, res=0). */
+    Register_Sentino_Cloud_Ready_Cb(on_cloud_ready);
+    Register_Sentino_Bind_Ack_Cb(on_bind_ack);
 }
 
 void sentino_ble_deinit(void)
