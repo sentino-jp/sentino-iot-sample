@@ -27,6 +27,7 @@ list(APPEND srcs
     sentino_mqtt/sentino_mqtt_dp.c
     sentino_mqtt/sentino_broker_ca.c
     sentino_ble/sentino_ble_v1.c
+    sentino_ble/sentino_ble_proto.c
     sentino_http_ota/sentino_ota.c
     sentino_factory/sentino_dynamic_register.c
 )

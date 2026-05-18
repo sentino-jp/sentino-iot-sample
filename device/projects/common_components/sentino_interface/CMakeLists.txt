@@ -5,6 +5,7 @@ if (CONFIG_SENTINO_IOT)
 list(APPEND srcs
     sentino_provision_import.c
     sentino_mqtt_import.c
+    sentino_ble_import.c
     sentino_rtc_export.c
     sentino_system_init.c
 )
