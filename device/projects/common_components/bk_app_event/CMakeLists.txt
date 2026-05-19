@@ -3,6 +3,7 @@ set(srcs "")
 
 list(APPEND srcs
     app_event.c
+    app_indicate_state.c
 )
 
 set(priv_req bk_common multimedia bk_led_blink bk_countdown main bk_factory_config ota bk_boarding_service bk_smart_config network_transfer sentino_interface VolcEngineRTCLite LingXin_AI_IoT_VoiceChatEngine)

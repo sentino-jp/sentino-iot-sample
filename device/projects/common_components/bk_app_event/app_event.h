@@ -73,13 +73,33 @@ typedef struct
 
 typedef void (*app_event_callback_t)(app_evt_msg_t *msg, void *user_data);
 typedef struct app_event_handler {
-    app_evt_type_t        event_type;
-    app_event_callback_t    callback;
-    void                    *user_data;
+    app_evt_type_t            event_type;
+    app_event_callback_t      callback;
+    void                     *user_data;
+    int                       priority;     /* lower runs first */
     struct app_event_handler *next;
 } app_event_handler_t;
 
+/* Listener execution order is by priority — the worker iterates the chain
+ * in ascending priority order, so register with the right band:
+ *
+ *   APP_EVT_PRIORITY_STATE    (0)   — app_indicate_state mutations: must
+ *                                     run BEFORE anything that reads state
+ *                                     (LED, UI, prompt) so the snapshot
+ *                                     they see reflects the new event.
+ *   APP_EVT_PRIORITY_BUSINESS (100) — hardware / subsystem effects:
+ *                                     bk_pm vote, wifi mode, sentino engine
+ *                                     start/stop, lvgl init/deinit, etc.
+ *   APP_EVT_PRIORITY_UI       (200) — user-facing late effects: prompt
+ *                                     tone, lvgl swap. Reads state; runs
+ *                                     after business so audio/screen
+ *                                     reflects both. */
+#define APP_EVT_PRIORITY_STATE       0
+#define APP_EVT_PRIORITY_BUSINESS    100
+#define APP_EVT_PRIORITY_UI          200
 
-int app_event_register_handler(app_evt_type_t event_type, 
-                              app_event_callback_t callback,
-                              void *user_data);
+
+int app_event_register_handler(app_evt_type_t event_type,
+                               app_event_callback_t callback,
+                               void *user_data,
+                               int priority);

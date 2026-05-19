@@ -86,7 +86,8 @@ void sentino_ble_init(sentino_ble_indicate_fn_t     indicate_fn,
      * 1801 = BIND_SUCCESS via mqtt bind-ack hook (cloud responds to our
      * publish_bind with code=bind, res=0). */
     app_event_register_handler(APP_EVT_NETWORK_PROVISIONING_SUCCESS,
-                               on_wifi_provisioned, NULL);
+                               on_wifi_provisioned, NULL,
+                               APP_EVT_PRIORITY_BUSINESS);
     Register_Sentino_Cloud_Ready_Cb(on_cloud_ready);
     Register_Sentino_Bind_Ack_Cb(on_bind_ack);
 }

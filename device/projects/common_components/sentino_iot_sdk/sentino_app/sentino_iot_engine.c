@@ -140,7 +140,8 @@ void sentino_iot_engine_init(void)
     sentino_mqtt_register_issue_handler(sentino_issue_handler);
     sentino_mqtt_register_connected_cb(on_mqtt_connected);
     app_event_register_handler(APP_EVT_CLOUD_CONNECTED,
-                               on_cloud_connected_worker, NULL);
+                               on_cloud_connected_worker, NULL,
+                               APP_EVT_PRIORITY_BUSINESS);
 
     if (0 != sentino_mqtt_connect()) {
         LOGE("sentino MQTT connect failed\n");
