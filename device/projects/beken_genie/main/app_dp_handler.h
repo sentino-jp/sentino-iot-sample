@@ -2,6 +2,7 @@
 #define __APP_DP_HANDLER_H__
 
 #include <stdbool.h>
+#include "sentino_mqtt_import.h"        /* dp_obj_t */
 
 /* Business-side DP (Thing-Model) handler.
  *
@@ -51,9 +52,23 @@ void app_dp_report_battery_percentage(unsigned char pct);
  * (+ + + + +) coalesces into one property_report carrying the final
  * value. Called by app_event worker on APP_EVT_VOLUME_CHANGED.
  *
- * Cloud-set path (on_dp_set) does NOT use this — it echoes synchronously
- * via Sentino_Dp_Report_Export, since cloud expects an immediate ack. */
+ * Cloud-set path does NOT use this — it echoes synchronously via
+ * Sentino_Dp_Report_Export, since cloud expects an immediate ack. */
 void app_dp_request_volume_report(unsigned char local_level);
+
+/* Apply one DP set as if it came from the cloud.
+ *
+ * This IS the function registered with Sentino_Dp_Set_Cb — exposed so
+ * AI agent command handlers (sentino_command_router actions) can
+ * converge on the same code path when their executor name matches a
+ * cloud-controllable DP. Plan §6 "重叠 executor 合流" — same map / apply
+ * / echo / property_report logic runs regardless of whether the trigger
+ * came from cloud DP set or AI action.
+ *
+ * Caller builds a dp_obj_t with identifier / type / value matching the
+ * Thing-Model, then calls this. The handler validates type and either
+ * applies (rw DPs) or rejects (read-only DPs). */
+void app_dp_apply_set(const dp_obj_t *dp);
 
 #ifdef __cplusplus
 }

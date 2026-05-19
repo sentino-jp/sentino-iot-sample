@@ -99,10 +99,13 @@ static void dp_set_int(dp_obj_t *out, const char *id, int32_t v)
 }
 
 /* ────────────────────────────────────────────────────────────────────
- *  on_dp_set — cloud → device property_set handler
+ *  app_dp_apply_set — cloud → device property_set handler
+ *
+ *  Also reachable from AI action handlers (sentino_command_router) for
+ *  DP-overlap commands, see header docstring + plan §6.
  * ──────────────────────────────────────────────────────────────────── */
 
-static void on_dp_set(const dp_obj_t *dp)
+void app_dp_apply_set(const dp_obj_t *dp)
 {
     /* Apply actuator + report the *applied* value back via property_report.
      * The SDK only echoes via issue_response which does NOT update cloud-side
@@ -267,7 +270,7 @@ void app_dp_request_volume_report(unsigned char local_level)
 
 void app_dp_handler_init(void)
 {
-    Register_Sentino_Dp_Set_Cb(on_dp_set);
+    Register_Sentino_Dp_Set_Cb(app_dp_apply_set);
     Register_Sentino_Cloud_Ready_Cb(app_dp_report_snapshot);
     LOGI("DP handler registered (identifiers: %s/%s/%s/%s)\n",
          DP_ID_SWITCH, DP_ID_BATTERY_PERCENTAGE,

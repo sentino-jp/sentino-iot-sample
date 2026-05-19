@@ -12,7 +12,7 @@ list(APPEND srcs
 )
 if (CONFIG_ENABLE_AGORA_DATASTREAM)
 list(APPEND srcs
-    sentino_device_command.c
+    sentino_command_agora_source.c
 )
 endif()
 endif()
