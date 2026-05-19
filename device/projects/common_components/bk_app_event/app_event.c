@@ -325,7 +325,7 @@ extern void prepare_config_network_main(void);
  *  Adding a new event = add a case in the appropriate handler + add an
  *  entry in the worker's routing switch. No 450-line edit needed. */
 
-static void handle_lifecycle_events(const app_evt_msg_t *msg)
+static void handle_lifecycle_events(app_evt_msg_t *msg, void *user_data)
 {
     switch (msg->event) {
         case APP_EVT_SMART_CONFIG_START:
@@ -383,7 +383,7 @@ static void handle_lifecycle_events(const app_evt_msg_t *msg)
     }
 }
 
-static void handle_asr_events(const app_evt_msg_t *msg)
+static void handle_asr_events(app_evt_msg_t *msg, void *user_data)
 {
     switch (msg->event) {
         case APP_EVT_ASR_WAKEUP:    /* hi armino */
@@ -440,7 +440,7 @@ static void handle_asr_events(const app_evt_msg_t *msg)
  *   AGENT_OFFLINE
  * Restore event: AGENT_JOINED — when it comes, all abnormal events
  * are cleared (see handle_rtc_agent_events). */
-static void handle_network_events(const app_evt_msg_t *msg)
+static void handle_network_events(app_evt_msg_t *msg, void *user_data)
 {
     switch (msg->event) {
         case APP_EVT_NETWORK_PROVISIONING:
@@ -506,7 +506,7 @@ static void handle_network_events(const app_evt_msg_t *msg)
     }
 }
 
-static void handle_rtc_agent_events(const app_evt_msg_t *msg)
+static void handle_rtc_agent_events(app_evt_msg_t *msg, void *user_data)
 {
     switch (msg->event) {
         case APP_EVT_RTC_CONNECTION_LOST:
@@ -562,7 +562,7 @@ static void handle_rtc_agent_events(const app_evt_msg_t *msg)
     }
 }
 
-static void handle_battery_events(const app_evt_msg_t *msg)
+static void handle_battery_events(app_evt_msg_t *msg, void *user_data)
 {
     switch (msg->event) {
         case APP_EVT_LOW_VOLTAGE:
@@ -586,7 +586,7 @@ static void handle_battery_events(const app_evt_msg_t *msg)
     }
 }
 
-static void handle_ota_events(const app_evt_msg_t *msg)
+static void handle_ota_events(app_evt_msg_t *msg, void *user_data)
 {
     switch (msg->event) {
         case APP_EVT_OTA_START:
@@ -621,7 +621,7 @@ static void handle_ota_events(const app_evt_msg_t *msg)
     }
 }
 
-static void handle_misc_events(const app_evt_msg_t *msg)
+static void handle_misc_events(app_evt_msg_t *msg, void *user_data)
 {
     switch (msg->event) {
         case APP_EVT_CLOSE_BLUETOOTH:
@@ -655,6 +655,74 @@ static void handle_misc_events(const app_evt_msg_t *msg)
     }
 }
 
+/* ────────────────────────────────────────────────────────────────────
+ *  Domain listener registration table
+ *
+ *  Each domain handler is registered as a regular listener (no special-
+ *  cased routing in the worker). The worker just iterates the priority-
+ *  sorted chain. Adding a new event = add a row here + the case in the
+ *  appropriate handle_X_events() function. */
+typedef struct {
+    app_evt_type_t       evt;
+    app_event_callback_t cb;
+} domain_listener_t;
+
+static const domain_listener_t s_domain_listeners[] = {
+    { APP_EVT_ASR_WAKEUP,                   handle_asr_events       },
+    { APP_EVT_ASR_STANDBY,                  handle_asr_events       },
+
+    { APP_EVT_NETWORK_PROVISIONING,         handle_network_events   },
+    { APP_EVT_NETWORK_PROVISIONING_SUCCESS, handle_network_events   },
+    { APP_EVT_NETWORK_PROVISIONING_FAIL,    handle_network_events   },
+    { APP_EVT_RECONNECT_NETWORK,            handle_network_events   },
+    { APP_EVT_RECONNECT_NETWORK_SUCCESS,    handle_network_events   },
+    { APP_EVT_RECONNECT_NETWORK_FAIL,       handle_network_events   },
+
+    { APP_EVT_RTC_CONNECTION_LOST,          handle_rtc_agent_events },
+    { APP_EVT_RTC_REJOIN_SUCCESS,           handle_rtc_agent_events },
+    { APP_EVT_AGENT_JOINED,                 handle_rtc_agent_events },
+    { APP_EVT_AGENT_OFFLINE,                handle_rtc_agent_events },
+    { APP_EVT_AGENT_START_FAIL,             handle_rtc_agent_events },
+    { APP_EVT_AGENT_DEVICE_REMOVE,          handle_rtc_agent_events },
+
+    { APP_EVT_LOW_VOLTAGE,                  handle_battery_events   },
+    { APP_EVT_CHARGING,                     handle_battery_events   },
+    { APP_EVT_SHUTDOWN_LOW_BATTERY,         handle_battery_events   },
+
+    { APP_EVT_OTA_START,                    handle_ota_events       },
+    { APP_EVT_OTA_SUCCESS,                  handle_ota_events       },
+    { APP_EVT_OTA_FAIL,                     handle_ota_events       },
+
+    { APP_EVT_SMART_CONFIG_START,           handle_lifecycle_events },
+    { APP_EVT_CONVOAI_OTA_CHECK,            handle_lifecycle_events },
+    { APP_EVT_CONVOAI_CONFIG_LOADING,       handle_lifecycle_events },
+    { APP_EVT_CONVOAI_START_TIMER_EXPIRE,   handle_lifecycle_events },
+    { APP_EVT_CONVOAI_EXIT,                 handle_lifecycle_events },
+    { APP_EVT_CONVOAI_PLAY_AVI,             handle_lifecycle_events },
+    { APP_EVT_CONVOAI_RESTORE_IDLE_AVI,     handle_lifecycle_events },
+#if CONFIG_BK_SMART_CONFIG
+    { APP_EVT_IR_MODE_SWITCH,               handle_lifecycle_events },
+#endif
+
+    { APP_EVT_CLOSE_BLUETOOTH,              handle_misc_events      },
+    { APP_EVT_SYNC_FLASH,                   handle_misc_events      },
+#if CONFIG_SENTINO_IOT
+    { APP_EVT_VOLUME_CHANGED,               handle_misc_events      },
+#endif
+};
+
+static void register_domain_listeners(void)
+{
+    for (size_t i = 0; i < sizeof(s_domain_listeners) / sizeof(s_domain_listeners[0]); i++) {
+        app_event_register_handler(s_domain_listeners[i].evt,
+                                   s_domain_listeners[i].cb, NULL,
+                                   APP_EVT_PRIORITY_BUSINESS);
+    }
+}
+
+/* Worker micro-core. Just pop, dispatch via priority-sorted listener chain,
+ * then drive UI from the resulting state. ~15 lines of dispatch logic; no
+ * domain knowledge. Adding events doesn't touch this function. */
 static void app_event_thread(beken_thread_arg_t data)
 {
     ota_event_callback_register(ota_event_callback);
@@ -671,76 +739,9 @@ static void app_event_thread(beken_thread_arg_t data)
             continue;
         }
 
-        /* Route by domain; each handler owns 2–8 related events and
-         * mutates state via the app_indicate_state API. The post-chain
-         * tick() flushes the resulting state to LED + countdown. */
-        switch (msg.event) {
-            case APP_EVT_ASR_WAKEUP:
-            case APP_EVT_ASR_STANDBY:
-                handle_asr_events(&msg);
-                break;
-
-            case APP_EVT_NETWORK_PROVISIONING:
-            case APP_EVT_NETWORK_PROVISIONING_SUCCESS:
-            case APP_EVT_NETWORK_PROVISIONING_FAIL:
-            case APP_EVT_RECONNECT_NETWORK:
-            case APP_EVT_RECONNECT_NETWORK_SUCCESS:
-            case APP_EVT_RECONNECT_NETWORK_FAIL:
-                handle_network_events(&msg);
-                break;
-
-            case APP_EVT_RTC_CONNECTION_LOST:
-            case APP_EVT_RTC_REJOIN_SUCCESS:
-            case APP_EVT_AGENT_JOINED:
-            case APP_EVT_AGENT_OFFLINE:
-            case APP_EVT_AGENT_START_FAIL:
-            case APP_EVT_AGENT_DEVICE_REMOVE:
-                handle_rtc_agent_events(&msg);
-                break;
-
-            case APP_EVT_LOW_VOLTAGE:
-            case APP_EVT_CHARGING:
-            case APP_EVT_SHUTDOWN_LOW_BATTERY:
-                handle_battery_events(&msg);
-                break;
-
-            case APP_EVT_OTA_START:
-            case APP_EVT_OTA_SUCCESS:
-            case APP_EVT_OTA_FAIL:
-                handle_ota_events(&msg);
-                break;
-
-            case APP_EVT_SMART_CONFIG_START:
-            case APP_EVT_CONVOAI_OTA_CHECK:
-            case APP_EVT_CONVOAI_CONFIG_LOADING:
-            case APP_EVT_CONVOAI_START_TIMER_EXPIRE:
-            case APP_EVT_CONVOAI_EXIT:
-            case APP_EVT_CONVOAI_PLAY_AVI:
-            case APP_EVT_CONVOAI_RESTORE_IDLE_AVI:
-#if CONFIG_BK_SMART_CONFIG
-            case APP_EVT_IR_MODE_SWITCH:
-#endif
-                handle_lifecycle_events(&msg);
-                break;
-
-            case APP_EVT_CLOSE_BLUETOOTH:
-            case APP_EVT_SYNC_FLASH:
-#if CONFIG_SENTINO_IOT
-            case APP_EVT_VOLUME_CHANGED:
-#endif
-                handle_misc_events(&msg);
-                break;
-
-            default:
-                break;
-        }
-
-        app_indicate_state_tick();
-
-        /* Listener chain: subsystems that prefer to opt-in per event
-         * (vs editing the routing switch above) register a callback via
-         * app_event_register_handler. Today only sentino_engine uses it
-         * for APP_EVT_CLOUD_CONNECTED. */
+        /* Dispatch via priority-sorted listener chain: STATE → BUSINESS
+         * → UI. Domain handlers and external subsystems (sentino_engine,
+         * etc.) all live in here as equal-priority listeners. */
         rtos_lock_mutex(&s_event_mutex);
         app_event_handler_t *handler = s_event_handlers;
         while (handler) {
@@ -750,6 +751,9 @@ static void app_event_thread(beken_thread_arg_t data)
             handler = handler->next;
         }
         rtos_unlock_mutex(&s_event_mutex);
+
+        /* Flush state to UI after all listeners have run. */
+        app_indicate_state_tick();
     }
 
     LOGI("%s, exit\r\n", __func__);
@@ -828,4 +832,9 @@ void app_event_init(void)
         return;
     }
 
+    /* Listener chain is mutex-protected so registration must happen after
+     * mutex init. Worker is already running but blocked on the queue (no
+     * events fired yet from producers — that happens later in boot), so
+     * the chain is populated before first dispatch. */
+    register_domain_listeners();
 }
