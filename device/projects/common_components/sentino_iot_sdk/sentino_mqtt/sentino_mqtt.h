@@ -31,9 +31,15 @@ typedef struct {
     char user_id[SENTINO_USER_ID_SIZE];
     char asset_id[SENTINO_ASSET_ID_SIZE];
     char mqtt_broker[SENTINO_BROKER_URL_SIZE];
-    uint16_t mqtt_port;
+    uint16_t mqtt_port;       /* plain MQTT port — 0 means app didn't send it */
     char pid[SENTINO_PID_SIZE];
-    uint8_t bind_state;   /* 0 = unbound, 1 = bound (set on bind ack res=0) */
+    uint8_t bind_state;       /* 0 = unbound, 1 = bound (set on bind ack res=0) */
+    uint16_t mqtt_ssl_port;   /* MQTT-over-TLS port — 0 means app didn't send it.
+                               * Appended after bind_state — old NVS records lack
+                               * this field and zero-init leaves it at 0, so
+                               * engine init naturally falls back to mqtt_port
+                               * (plain). One factory_reset + reprovision writes
+                               * both ports and unlocks TLS. */
 } sentino_provision_info_t;
 
 /* RTC parameters returned by cloud via MQTT report_response */
@@ -50,12 +56,14 @@ typedef void (*sentino_issue_handler_t)(const char *code, const char *payload_js
 /**
  * Initialize the MQTT client. Does not connect yet.
  * @param broker_url  MQTT broker hostname (e.g. "mqtt-iot.sentino.jp")
- * @param port        MQTT broker port (e.g. 1883)
+ * @param port        MQTT broker port — any number, no magic. Caller picks.
+ * @param use_tls     true → MQTT-over-TLS, false → plain. Caller decides;
+ *                    sentino_mqtt does not infer protocol from port value.
  * @param uuid        Device UUID from three-tuple
  * @param key         Device KEY from three-tuple (for HMAC-SHA256 password)
  * @param pid         Product ID
  */
-int sentino_mqtt_init(const char *broker_url, uint16_t port,
+int sentino_mqtt_init(const char *broker_url, uint16_t port, bool use_tls,
                       const char *uuid, const char *key, const char *pid);
 
 /** Connect to MQTT broker. Subscribes to report_response and issue topics. */

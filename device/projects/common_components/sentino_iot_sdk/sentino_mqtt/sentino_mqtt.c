@@ -24,10 +24,6 @@
 /* Timeout for RTC access request (ms) */
 #define RTC_ACCESS_TIMEOUT_MS   10000
 
-/* Pick TLS based on port. 8883 is standard mqtts; everything else (notably
- * 1883) stays on plain TCP for backward compat with NVS-provisioned devices. */
-#define IS_TLS_PORT(p)          ((p) == 8883)
-
 /* MQTT message ID counter (for app-layer JSON id field, not MQTT packet id) */
 static uint32_t s_msg_id_counter = 0;
 
@@ -39,6 +35,7 @@ static struct {
     char pid[SENTINO_PID_SIZE];
     char broker_url[SENTINO_BROKER_URL_SIZE];
     uint16_t port;
+    bool use_tls;
 
     char client_id[128];
     char username[256];
@@ -285,7 +282,7 @@ static int publish_json(const char *topic, cJSON *root)
  *  Public API
  * ════════════════════════════════════════════════════════════════════ */
 
-int sentino_mqtt_init(const char *broker_url, uint16_t port,
+int sentino_mqtt_init(const char *broker_url, uint16_t port, bool use_tls,
                       const char *uuid, const char *key, const char *pid)
 {
     /* If a client already exists, tear it down first. */
@@ -299,7 +296,8 @@ int sentino_mqtt_init(const char *broker_url, uint16_t port,
     strncpy(s_mqtt.key, key, sizeof(s_mqtt.key) - 1);
     strncpy(s_mqtt.pid, pid, sizeof(s_mqtt.pid) - 1);
     strncpy(s_mqtt.broker_url, broker_url, sizeof(s_mqtt.broker_url) - 1);
-    s_mqtt.port = port;
+    s_mqtt.port    = port;
+    s_mqtt.use_tls = use_tls;
 
     /* Build topic strings: rlink/v2/${pid}/${uuid}/{report,...} */
     snprintf(s_mqtt.topic_report, sizeof(s_mqtt.topic_report),
@@ -311,7 +309,8 @@ int sentino_mqtt_init(const char *broker_url, uint16_t port,
     snprintf(s_mqtt.topic_issue_response, sizeof(s_mqtt.topic_issue_response),
              "rlink/v2/%s/%s/issue_response", pid, uuid);
 
-    LOGI("init: broker=%s:%u, uuid=%s, pid=%s", broker_url, port, uuid, pid);
+    LOGI("init: broker=%s:%u tls=%d, uuid=%s, pid=%s",
+         broker_url, port, (int)use_tls, uuid, pid);
     LOGI("topic_report=%s", s_mqtt.topic_report);
 
     s_mqtt.initialized = true;
@@ -342,16 +341,17 @@ int sentino_mqtt_connect(void)
              "%s|signMethod=hmacSha256,ts=%llu",
              s_mqtt.uuid, (unsigned long long)ts);
 
-    /* Build mqtts client. Pick TLS purely from port. Defaults cover keepalive,
-     * timeouts, buffer sizes, auto-reconnect (1s..60s backoff), PINGRESP
-     * liveness; we only override what's identity- or workload-specific. */
+    /* Build mqtts client. TLS choice is caller-supplied (no port magic).
+     * Defaults cover keepalive, timeouts, buffer sizes, auto-reconnect
+     * (1s..60s backoff), PINGRESP liveness; we only override what's identity-
+     * or workload-specific. */
     mqtts_config_t cfg     = MQTTS_CFG_DEFAULTS();
     cfg.host               = s_mqtt.broker_url;
     cfg.port               = s_mqtt.port;
     cfg.client_id          = s_mqtt.client_id;
     cfg.username           = s_mqtt.username;
     cfg.password           = s_mqtt.password;
-    cfg.use_tls            = IS_TLS_PORT(s_mqtt.port);
+    cfg.use_tls            = s_mqtt.use_tls;
     /* When TLS, validate server cert against the embedded Sentino CA. mqtts
      * runs in OPTIONAL+selective-reject mode: chain/hostname/usage failures
      * abort, time-validity failures (FUTURE/EXPIRED) are tolerated until NTP

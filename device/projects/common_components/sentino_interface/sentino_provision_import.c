@@ -10,13 +10,15 @@ static bool s_triple_loaded = false;
 void sentino_provision_apply_from_ble(const char *user_id,
                                       const char *asset_id,
                                       const char *broker_url,
-                                      uint16_t port)
+                                      uint16_t port,
+                                      uint16_t ssl_port)
 {
     sentino_provision_info_t prov = {0};
     if (user_id    && *user_id)    strncpy(prov.user_id,     user_id,    sizeof(prov.user_id)     - 1);
     if (asset_id   && *asset_id)   strncpy(prov.asset_id,    asset_id,   sizeof(prov.asset_id)    - 1);
     if (broker_url && *broker_url) strncpy(prov.mqtt_broker, broker_url, sizeof(prov.mqtt_broker) - 1);
-    prov.mqtt_port = port ? port : 8883;
+    prov.mqtt_port     = port;       /* 0 if App didn't send `port`        */
+    prov.mqtt_ssl_port = ssl_port;   /* 0 if App didn't send `mqttSslPort` */
     sentino_provision_info_write(&prov);
 }
 
