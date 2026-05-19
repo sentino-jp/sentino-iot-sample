@@ -21,6 +21,7 @@ endif()
 if (CONFIG_ENABLE_AGORA_DATASTREAM)
 list(APPEND srcs
     genie_action_display_emotion.c
+    genie_action_volume_set.c
 )
 endif()
 endif()

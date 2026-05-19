@@ -41,6 +41,7 @@
 #include "sentino_command_router.h"
 #include "sentino_command_agora_source.h"
 #include "genie_action_display_emotion.h"
+#include "genie_action_volume_set.h"
 #endif
 #include <led_blink.h>
 #include <common/bk_include.h>
@@ -292,6 +293,7 @@ int main(void)
          * command. P0 = stub log only. */
         sentino_command_router_init();
         genie_action_display_emotion_register();
+        genie_action_volume_set_register();
         sentino_command_agora_source_init();
 #endif
 #endif

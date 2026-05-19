@@ -24,7 +24,28 @@ extern "C" {
  * Each action's own .c file calls sentino_command_router_register_action()
  * to wire its name → handler. Order of registers doesn't matter; bus
  * traffic before init just gets dropped at the bus (no executor wired).
- */
+ *
+ * ────────────────────────────────────────────────────────────────────
+ *  Action naming convention (Sentino reference firmware):
+ *
+ *    DP-overlap actions       — executor name == Thing-Model DP identifier verbatim
+ *                               (e.g. "volume_set", "brightness_set")
+ *                               parameters == { "value": <new DP value> }
+ *                               Handler builds a dp_obj_t and routes via
+ *                               app_dp_apply_set() — converges with the
+ *                               cloud-side property_set code path.
+ *
+ *    Pure-event actions       — executor name uses verb_noun
+ *                               (e.g. "display_emotion", "vibrate_twice")
+ *                               parameters free-form per action's needs
+ *                               (e.g. {"emotion_type":"happy"}).
+ *
+ *  Reading wire log: an executor name matching a DP identifier signals
+ *  "this command has a DP behind it"; a verb_noun signals "AI-only event,
+ *  no DP state". Customers forking this firmware should keep the rule
+ *  consistent so AI prompt engineers and ops can both reason about the
+ *  same wire.
+ * ──────────────────────────────────────────────────────────────────── */
 
 /* Per-action handler signature. `executor` name is NOT passed — the router
  * has already dispatched by name, so the handler knows what it is.
