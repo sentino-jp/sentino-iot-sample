@@ -1,17 +1,8 @@
 #pragma once
 
-typedef enum
-{
-    EMOTION_HAPPY = 0,
-    EMOTION_SAD,
-    EMOTION_ANGRY,
-    EMOTION_SURPRISED,
-    EMOTION_NEUTRAL,
-    EMOTION_THINKING,
-    EMOTION_SLEEPY,
-    EMOTION_LOVING,
-    EMOTION_CURIOUS,
-} app_emotion_t;
+/* Generic event subsystem — NO product-specific vocabulary here. Business
+ * enums (e.g. EMOTION_*) live in the project's own headers, e.g.
+ * beken_genie/main/genie_action_display_emotion.h. */
 
 typedef enum
 {
@@ -45,7 +36,11 @@ typedef enum
     APP_EVT_CONVOAI_CONFIG_LOADING,
     APP_EVT_CONVOAI_START_TIMER_EXPIRE,
     APP_EVT_CONVOAI_EXIT,
-    APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE,
+    /* Play an AVI on the LCD via lvgl. msg.param is (uintptr_t)(const char *)
+     * filename — usually a .rodata string literal so cross-thread is safe.
+     * Producer translates whatever business vocabulary (emotion, etc.) to a
+     * filename before sending; worker just calls lvgl_app_play(filename). */
+    APP_EVT_CONVOAI_PLAY_AVI,
     APP_EVT_CONVOAI_RESTORE_IDLE_AVI,
     APP_EVT_SMART_CONFIG_START,
 
@@ -60,34 +55,6 @@ typedef enum
      * Posted from key_thread; handled in app_event worker → DP report. */
     APP_EVT_VOLUME_CHANGED,
 } app_evt_type_t;
-
-static inline const char *app_emotion_2_avi_file(app_emotion_t emotion)
-{
-   switch (emotion) {
-        case EMOTION_HAPPY:
-            return "/happy.avi";
-        case EMOTION_SAD:
-            return "/sad.avi";
-        case EMOTION_ANGRY:
-            return "/angry.avi";
-        case EMOTION_SURPRISED:
-            return "/surprise.avi";
-        case EMOTION_NEUTRAL:
-            return "/neutral.avi";
-        case EMOTION_THINKING:
-            return "/thinking.avi";
-        case EMOTION_SLEEPY:
-            return "/sleepy.avi";
-        case EMOTION_LOVING:
-            return "/love.avi";
-        case EMOTION_CURIOUS:
-            return "/curious.avi";
-        default:
-            break;
-    }
-
-    return "/neutral.avi";
-}
 
 void app_event_init(void);
 bk_err_t app_event_send_msg(uint32_t event, uint32_t param);

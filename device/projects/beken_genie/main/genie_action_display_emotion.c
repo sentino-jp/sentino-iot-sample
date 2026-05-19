@@ -91,8 +91,11 @@ static int handler(const cJSON *parameters, int priority)
     }
     for (size_t i = 0; i < sizeof(s_emotion_map)/sizeof(s_emotion_map[0]); i++) {
         if (strcmp(et, s_emotion_map[i].name) == 0) {
-            app_event_send_msg(APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE,
-                               (uint32_t)s_emotion_map[i].value);
+            /* Translate to AVI path HERE — the generic worker stays
+             * vocabulary-agnostic. app_emotion_2_avi_file returns a
+             * .rodata literal so the pointer outlives the event. */
+            const char *avi = app_emotion_2_avi_file(s_emotion_map[i].value);
+            app_event_send_msg(APP_EVT_CONVOAI_PLAY_AVI, (uint32_t)(uintptr_t)avi);
             arm_idle_timer();
             return 0;
         }
