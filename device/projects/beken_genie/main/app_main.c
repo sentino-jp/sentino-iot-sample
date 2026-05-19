@@ -39,7 +39,8 @@
 #include "countdown.h"
 #if CONFIG_SENTINO_IOT && CONFIG_ENABLE_AGORA_DATASTREAM
 #include "cJSON.h"
-#include "sentino_device_command.h"
+#include "sentino_command_bus.h"
+#include "sentino_command_agora_source.h"
 #endif
 #include <led_blink.h>
 #include <common/bk_include.h>
@@ -389,8 +390,8 @@ int main(void)
          * envelope from cloud). Must follow init_datastream_resource so the
          * queue exists; must precede RTC join so we don't miss the first
          * command. P0 = stub log only. */
-        sentino_device_command_register_executor(conv_ai_executor_dispatch);
-        sentino_device_command_init();
+        sentino_command_bus_register_executor(conv_ai_executor_dispatch);
+        sentino_command_agora_source_init();
 #endif
 #endif
 
