@@ -332,20 +332,370 @@ extern bool image_recognition_mode_enable;
 
 extern void agora_ir_mode_config(bool enable);
 extern void prepare_config_network_main(void);
+
+/* ────────────────────────────────────────────────────────────────────
+ *  Shared device-status state.
+ *
+ *  These were thread-local in app_event_thread; promoted to file-static
+ *  so the per-domain handlers below can mutate them without long parameter
+ *  lists. The worker thread is the sole writer/reader so no locking is
+ *  needed. Initial values match the original local-var inits. */
+
+static uint32_t s_is_standby              = 1;
+static uint32_t s_is_joined_agent         = 0;
+static uint32_t s_is_network_provisioning = 0;
+static uint32_t s_warning_state           = 0;
+static uint32_t s_indicates_state         = (1 << INDICATES_POWER_ON);
+static uint32_t s_active_tickets          = (1 << COUNTDOWN_TICKET_STANDBY);
+
+/* ────────────────────────────────────────────────────────────────────
+ *  Domain handlers
+ *
+ *  app_event_thread used to be a 450-line mega-switch handling 30+ events
+ *  inline. Now the switch routes by domain to one of these 7 handlers.
+ *  Each handler:
+ *    - owns 2–8 related events
+ *    - mutates the shared bitmasks above
+ *    - calls into the right subsystem(s)
+ *    - returns true to ask the worker to skip the countdown update this
+ *      iteration (battery / volume cases)
+ *  Adding a new event = add a case in the appropriate handler + add an
+ *  entry in the worker's routing switch. No 450-line edit needed. */
+
+static bool handle_lifecycle_events(const app_evt_msg_t *msg)
+{
+    switch (msg->event) {
+        case APP_EVT_SMART_CONFIG_START:
+            LOGI("APP_EVT_SMART_CONFIG_START\n");
+            //prepare_config_network_main();
+            break;
+        case APP_EVT_CONVOAI_OTA_CHECK:
+            LOGI("APP_EVT_CONVOAI_OTA_CHECK\n");
+            break;
+        case APP_EVT_CONVOAI_CONFIG_LOADING:
+            LOGI("APP_EVT_CONVOAI_CONFIG_LOADING\n");
+#if CONFIG_SENTINO_IOT
+            sentino_engine_init();
+#endif
+            break;
+        case APP_EVT_CONVOAI_START_TIMER_EXPIRE:
+            LOGI("APP_EVT_CONVOAI_START_TIMER_EXPIRE\n");
+            break;
+        case APP_EVT_CONVOAI_EXIT:
+            LOGI("APP_EVT_CONVOAI_EXIT\n");
+#if CONFIG_SENTINO_IOT
+            sentino_engine_stop();
+#endif
+            break;
+        case APP_EVT_CONVOAI_PLAY_AVI:
+            LOGI("APP_EVT_CONVOAI_PLAY_AVI. ir_mode=%d\n", image_recognition_mode_enable);
+            if (!image_recognition_mode_enable) {
+#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
+                /* msg->param is (uintptr_t)(const char *) — producer
+                 * (business action handler) owns the business-to-path
+                 * translation. Worker stays vocabulary-agnostic. */
+                lvgl_app_play((char *)(uintptr_t)msg->param);
+#endif
+            }
+            break;
+        case APP_EVT_CONVOAI_RESTORE_IDLE_AVI:
+            LOGI("APP_EVT_CONVOAI_RESTORE_IDLE_AVI. ir_mode=%d\n", image_recognition_mode_enable);
+            if (!image_recognition_mode_enable) {
+#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
+                lvgl_app_play("/genie_eye.avi");
+#endif
+            }
+            break;
+#if CONFIG_BK_SMART_CONFIG
+        case APP_EVT_IR_MODE_SWITCH:
+            LOGI("APP_EVT_IR_MODE_SWITCH\n");
+            if (s_is_standby == 0) {
+                //bk_sconf_begin_to_switch_ir_mode();
+                agora_ir_mode_config(msg->param);
+            }
+            break;
+#endif
+        default:
+            break;
+    }
+    return false;
+}
+
+static bool handle_asr_events(const app_evt_msg_t *msg)
+{
+    switch (msg->event) {
+        case APP_EVT_ASR_WAKEUP:    /* hi armino */
+            s_is_standby = 0;
+            s_indicates_state &= ~(1 << INDICATES_STANDBY);
+            s_active_tickets  &= ~(1 << COUNTDOWN_TICKET_STANDBY);
+            LOGI("APP_EVT_ASR_WAKEUP\n");
+            try_play_prompt_tone(APP_EVT_ASR_WAKEUP);
+            bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_480M);
+            bk_wifi_sta_pm_disable();
+            bk_wifi_set_wifi_media_mode(true);
+#if CONFIG_SENTINO_IOT
+            sentino_engine_start();
+#endif
+#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
+            lvgl_app_init();
+#endif
+            if (!s_is_network_provisioning) {
+                led_app_set(LED_OFF_GREEN, 0);
+            }
+#if (CONFIG_SYS_CPU0 && CONFIG_LINGXIN_AI_EN)
+            LOGI("%s line:%d State_Event_Wakeup_Detected\r\n", __func__, __LINE__);
+            state_machine_run_event(State_Event_Wakeup_Detected);
+#endif
+#if (CONFIG_SYS_CPU0 && CONFIG_BK_WSS_TRANS)
+            rtc_websocket_rx_data_clean();
+#endif
+            break;
+        case APP_EVT_ASR_STANDBY:   /* byebye armino */
+            s_is_standby = 1;
+            s_indicates_state |= (1 << INDICATES_STANDBY);
+            s_active_tickets  |= (1 << COUNTDOWN_TICKET_STANDBY);
+            LOGI("APP_EVT_ASR_STANDBY\n");
+#if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE && !(CONFIG_A2DP_SINK_DEMO || CONFIG_HFP_HF_DEMO)
+            app_play_prompt_tone(APP_EVT_ASR_STANDBY);
+#endif
+#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
+            lvgl_app_deinit();
+#endif
+#if CONFIG_SENTINO_IOT
+            sentino_engine_stop();
+#endif
+            bk_wifi_set_wifi_media_mode(false);
+            bk_wifi_sta_pm_enable();
+            bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_240M);
+            break;
+        default:
+            break;
+    }
+    return false;
+}
+
+/* Network = provisioning + reconnect. Abnormal events:
+ *   PROVISIONING_FAIL / RECONNECT_NETWORK_FAIL / RTC_CONNECTION_LOST /
+ *   AGENT_OFFLINE
+ * Restore event: AGENT_JOINED — when it comes, all abnormal events
+ * are cleared (see handle_rtc_agent_events). */
+static bool handle_network_events(const app_evt_msg_t *msg)
+{
+    switch (msg->event) {
+        case APP_EVT_NETWORK_PROVISIONING:
+            LOGI("APP_EVT_NETWORK_PROVISIONING\n");
+            s_is_network_provisioning = 1;
+            /* 优先级最高 */
+            s_active_tickets   &= ~(1 << COUNTDOWN_TICKET_NETWORK_ERROR);
+            s_active_tickets   |=  (1 << COUNTDOWN_TICKET_PROVISIONING);
+            s_indicates_state  |=  (1 << INDICATES_PROVISIONING);
+            s_indicates_state  &= ~((1 << INDICATES_AGENT_CONNECT) | (1 << INDICATES_POWER_ON) | (1 << INDICATES_WIFI_RECONNECT));
+            s_warning_state    &= ~(HIGH_PRIORITY_WARNING_MASK);
+            try_play_prompt_tone(APP_EVT_NETWORK_PROVISIONING);
+#if (CONFIG_DUAL_SCREEN_AVI_PLAY)
+            media_app_lvgl_switch_ui(LVGL_UI_DISP_IN_TEXT);
+#endif
+            break;
+        case APP_EVT_NETWORK_PROVISIONING_SUCCESS:
+            LOGI("APP_EVT_NETWORK_PROVISIONING_SUCCESS\n");
+            s_indicates_state &= ~(1 << INDICATES_PROVISIONING);
+            s_indicates_state |=  (1 << INDICATES_AGENT_CONNECT);
+            s_warning_state   &= ~(1 << WARNING_PROVIOSION_FAIL);
+            s_active_tickets  &= ~(1 << COUNTDOWN_TICKET_PROVISIONING);
+            try_play_prompt_tone(APP_EVT_NETWORK_PROVISIONING_SUCCESS);
+            break;
+        case APP_EVT_NETWORK_PROVISIONING_FAIL:
+            LOGI("APP_EVT_NETWORK_PROVISIONING_FAIL\n");
+            s_active_tickets  &= ~(1 << COUNTDOWN_TICKET_PROVISIONING);
+            s_active_tickets  |=  (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
+            s_indicates_state &= ~(1 << INDICATES_PROVISIONING);
+            s_warning_state   |=  (1 << WARNING_PROVIOSION_FAIL);
+            try_play_prompt_tone(APP_EVT_NETWORK_PROVISIONING_FAIL);
+            break;
+        case APP_EVT_RECONNECT_NETWORK:
+            LOGI("APP_EVT_RECONNECT_NETWORK\n");
+            s_warning_state   &= ~(1 << WARNING_WIFI_FAIL);
+            s_indicates_state |=  (1 << INDICATES_WIFI_RECONNECT);
+            s_indicates_state &= ~(1 << INDICATES_POWER_ON);
+            try_play_prompt_tone(APP_EVT_RECONNECT_NETWORK);
+            break;
+        case APP_EVT_RECONNECT_NETWORK_SUCCESS:
+            LOGI("APP_EVT_RECONNECT_NETWORK_SUCCESS\n");
+            s_active_tickets &= ~(1 << COUNTDOWN_TICKET_PROVISIONING);
+            if (s_warning_state & WIFI_FAIL) {
+                if (s_is_joined_agent && s_is_standby) {
+                    s_indicates_state |= (1 << INDICATES_STANDBY);
+                }
+            } else {
+                s_indicates_state |= (1 << INDICATES_AGENT_CONNECT);
+            }
+            s_warning_state   &= ~(1 << WARNING_WIFI_FAIL);
+            s_indicates_state &= ~(1 << INDICATES_WIFI_RECONNECT);
+            try_play_prompt_tone(APP_EVT_RECONNECT_NETWORK_SUCCESS);
+            break;
+        case APP_EVT_RECONNECT_NETWORK_FAIL:
+            LOGI("APP_EVT_RECONNECT_NETWORK_FAIL\n");
+            s_active_tickets  |=  (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
+            s_warning_state   |=  (1 << WARNING_WIFI_FAIL);
+            s_indicates_state &= ~(1 << INDICATES_WIFI_RECONNECT);
+            try_play_prompt_tone(APP_EVT_RECONNECT_NETWORK_FAIL);
+            break;
+        default:
+            break;
+    }
+    return false;
+}
+
+static bool handle_rtc_agent_events(const app_evt_msg_t *msg)
+{
+    switch (msg->event) {
+        case APP_EVT_RTC_CONNECTION_LOST:
+            LOGI("APP_EVT_RTC_CONNECTION_LOST\n");
+            s_warning_state |= (1 << WARNING_RTC_CONNECT_LOST);
+            try_play_prompt_tone(APP_EVT_RTC_CONNECTION_LOST);
+            break;
+        case APP_EVT_RTC_REJOIN_SUCCESS:
+            LOGI("APP_EVT_RTC_REJOIN_SUCCESS\n");
+            s_warning_state &= ~(1 << WARNING_RTC_CONNECT_LOST);
+            if (s_is_joined_agent && s_is_standby) {
+                s_indicates_state |= (1 << INDICATES_STANDBY);
+            }
+            break;
+        case APP_EVT_AGENT_JOINED:
+            LOGI("APP_EVT_AGENT_JOINED\n");
+            s_is_joined_agent = 1;
+            s_active_tickets   &= ~(1 << COUNTDOWN_TICKET_NETWORK_ERROR);
+            s_indicates_state  &= ~(1 << INDICATES_AGENT_CONNECT);
+            s_warning_state    &= ~((1 << WARNING_RTC_CONNECT_LOST) |
+                                    (1 << WARNING_AGENT_OFFLINE) |
+                                    (1 << WARNING_WIFI_FAIL) |
+                                    (1 << WARNING_AGENT_AGENT_START_FAIL));
+            s_is_network_provisioning = 0;
+            s_indicates_state  &= ~(1 << INDICATES_PROVISIONING);
+            if (s_is_standby) {
+                s_indicates_state |= (1 << INDICATES_STANDBY);
+            }
+            // try_play_prompt_tone(APP_EVT_AGENT_JOINED);  // intentionally disabled
+            break;
+        case APP_EVT_AGENT_OFFLINE:
+            LOGI("APP_EVT_AGENT_OFFLINE\n");
+            s_is_joined_agent = 0;
+            s_active_tickets |= (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
+            s_warning_state  |= (1 << WARNING_AGENT_OFFLINE);
+            try_play_prompt_tone(APP_EVT_AGENT_OFFLINE);
+            break;
+        case APP_EVT_AGENT_START_FAIL:
+            LOGI("APP_EVT_AGENT_START_FAIL\n");
+            s_active_tickets |= (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
+            s_warning_state  |= (1 << WARNING_AGENT_AGENT_START_FAIL);
+            try_play_prompt_tone(APP_EVT_AGENT_START_FAIL);
+            break;
+        case APP_EVT_AGENT_DEVICE_REMOVE:
+            LOGI("APP_EVT_AGENT_DEVICE_REMOVE\n");
+#if CONFIG_AGORA_IOT_SDK
+            agora_stop();
+#endif
+            break;
+        default:
+            break;
+    }
+    return false;
+}
+
+static bool handle_battery_events(const app_evt_msg_t *msg)
+{
+    switch (msg->event) {
+        case APP_EVT_LOW_VOLTAGE:
+            LOGI("APP_EVT_LOW_VOLTAGE\n");
+            s_warning_state |= (1 << WARNING_LOW_BATTERY);
+            try_play_prompt_tone(APP_EVT_LOW_VOLTAGE);
+            return true;
+        case APP_EVT_CHARGING:
+            LOGI("APP_EVT_CHARGING\n");
+            s_warning_state &= ~(1 << WARNING_LOW_BATTERY);
+            return true;
+        case APP_EVT_SHUTDOWN_LOW_BATTERY:
+            LOGI("APP_EVT_SHUTDOWN_LOW_BATTERY\n");
+            bk_config_sync_flash();
+            return true;
+        default:
+            break;
+    }
+    return false;
+}
+
+static bool handle_ota_events(const app_evt_msg_t *msg)
+{
+    switch (msg->event) {
+        case APP_EVT_OTA_START:
+            LOGI("APP_EVT_OTA_START\n");
+            s_active_tickets |= (1 << COUNTDOWN_TICKET_OTA);
+#if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE
+            app_play_prompt_tone(APP_EVT_OTA_START);
+#endif
+            break;
+        case APP_EVT_OTA_SUCCESS:
+            LOGI("APP_EVT_OTA_SUCCESS\n");
+            s_active_tickets &= ~(1 << COUNTDOWN_TICKET_OTA);
+#if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE
+            app_play_prompt_tone(APP_EVT_OTA_SUCCESS);
+#endif
+#if CONFIG_OTA_DISPLAY_PICTURE_DEMO
+            bk_ota_reponse_state_to_audio(msg->event);
+#endif
+            break;
+        case APP_EVT_OTA_FAIL:
+            LOGI("APP_EVT_OTA_FAIL\n");
+            s_active_tickets &= ~(1 << COUNTDOWN_TICKET_OTA);
+#if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE
+            app_play_prompt_tone(APP_EVT_OTA_FAIL);
+#endif
+#if CONFIG_OTA_DISPLAY_PICTURE_DEMO
+            bk_ota_reponse_state_to_audio(msg->event);
+#endif
+            break;
+        default:
+            break;
+    }
+    return false;
+}
+
+static bool handle_misc_events(const app_evt_msg_t *msg)
+{
+    switch (msg->event) {
+        case APP_EVT_CLOSE_BLUETOOTH:
+            rtos_delay_milliseconds(100);
+#if CONFIG_A2DP_SINK_DEMO || CONFIG_HFP_HF_DEMO
+            LOGI("APP_EVT_CLOSE_BLUETOOTH no need to close !!!\n");
+#else
+            LOGI("APP_EVT_CLOSE_BLUETOOTH\n");
+#if CONFIG_BK_BOARDING_SERVICE
+            bk_genie_boarding_deinit();
+#endif
+#if CONFIG_BLUETOOTH
+            bk_bluetooth_deinit();
+#endif
+#endif
+            return false;
+        case APP_EVT_SYNC_FLASH:
+            LOGI("APP_EVT_SYNC_FLASH\n");
+            bk_sconf_sync_flash_safely();
+            return false;
+#if CONFIG_SENTINO_IOT
+        case APP_EVT_VOLUME_CHANGED:
+            LOGI("APP_EVT_VOLUME_CHANGED local=%u\n", msg->param);
+            extern void app_dp_request_volume_report(unsigned char);
+            app_dp_request_volume_report((unsigned char)msg->param);
+            return true;
+#endif
+        default:
+            break;
+    }
+    return false;
+}
+
 static void app_event_thread(beken_thread_arg_t data)
 {
-	int ret = BK_OK;
-
-    uint32_t is_standby = 1;
-    uint32_t is_joined_agent = 0;
-
-    uint32_t warning_state = 0;
-	  uint32_t indicates_state = (1<<INDICATES_POWER_ON);
-
-    // uint32_t network_err = 0;
-    uint32_t is_network_provisioning = 0;
-
-    uint32_t s_active_tickets = (1 << COUNTDOWN_TICKET_STANDBY);
     ota_event_callback_register(ota_event_callback);
 #if CONFIG_COUNTDOWN
     update_countdown(s_active_tickets);
@@ -355,358 +705,101 @@ static void app_event_thread(beken_thread_arg_t data)
 #endif
     media_app_asr_evt_register_callback(app_event_asr_evt_callback);
 
-    while (1)
-    {
+    while (1) {
         app_evt_msg_t msg;
+        int ret = rtos_pop_from_queue(&app_evt_info.queue, &msg, BEKEN_WAIT_FOREVER);
+        if (ret != BK_OK) {
+            continue;
+        }
 
-        ret = rtos_pop_from_queue(&app_evt_info.queue, &msg, BEKEN_WAIT_FOREVER);
+        /* Route by domain; each handler owns 2–8 related events and
+         * returns true if the countdown update should be skipped this
+         * iteration (battery / volume cases). */
+        bool skip_countdown_update = false;
+        switch (msg.event) {
+            case APP_EVT_ASR_WAKEUP:
+            case APP_EVT_ASR_STANDBY:
+                skip_countdown_update = handle_asr_events(&msg);
+                break;
 
-        if (ret == BK_OK)
-        {
-            bool skip_countdown_update = false;
-            switch (msg.event)
-            {
-                case APP_EVT_SMART_CONFIG_START:
-                    LOGI("APP_EVT_SMART_CONFIG_START\n");
-                    //prepare_config_network_main();
-                    break;
-                case APP_EVT_CONVOAI_OTA_CHECK:
-                    LOGI("APP_EVT_CONVOAI_OTA_CHECK\n");
-                    break;
-                case APP_EVT_CONVOAI_CONFIG_LOADING:
-                    LOGI("APP_EVT_CONVOAI_CONFIG_LOADING\n");
-#if CONFIG_SENTINO_IOT
-                    sentino_engine_init();
-#endif
-                    break;
-                case APP_EVT_CONVOAI_START_TIMER_EXPIRE:
-                    LOGI("APP_EVT_CONVOAI_START_TIMER_EXPIRE\n");
-                    break;
-                case APP_EVT_CONVOAI_EXIT:
-                    LOGI("APP_EVT_CONVOAI_EXIT\n");
-#if CONFIG_SENTINO_IOT
-                    sentino_engine_stop();
-#endif
-                    break;
-                case APP_EVT_CONVOAI_PLAY_AVI:
-                    LOGI("APP_EVT_CONVOAI_PLAY_AVI. ir_mode=%d\n", image_recognition_mode_enable);
-                    if (!image_recognition_mode_enable) {
-#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
-                        /* msg.param is (uintptr_t)(const char *) — producer
-                         * (business action handler) owns the business-to-path
-                         * translation. Worker stays vocabulary-agnostic. */
-                        lvgl_app_play((char *)(uintptr_t)msg.param);
-#endif
-                    }
-                    break;
-                case APP_EVT_CONVOAI_RESTORE_IDLE_AVI:
-                    LOGI("APP_EVT_CONVOAI_RESTORE_IDLE_AVI. ir_mode=%d\n", image_recognition_mode_enable);
-                    if (!image_recognition_mode_enable) {
-                    #if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
-                        lvgl_app_play("/genie_eye.avi");
-                    #endif
-                    }
-                    break;
+            case APP_EVT_NETWORK_PROVISIONING:
+            case APP_EVT_NETWORK_PROVISIONING_SUCCESS:
+            case APP_EVT_NETWORK_PROVISIONING_FAIL:
+            case APP_EVT_RECONNECT_NETWORK:
+            case APP_EVT_RECONNECT_NETWORK_SUCCESS:
+            case APP_EVT_RECONNECT_NETWORK_FAIL:
+                skip_countdown_update = handle_network_events(&msg);
+                break;
+
+            case APP_EVT_RTC_CONNECTION_LOST:
+            case APP_EVT_RTC_REJOIN_SUCCESS:
+            case APP_EVT_AGENT_JOINED:
+            case APP_EVT_AGENT_OFFLINE:
+            case APP_EVT_AGENT_START_FAIL:
+            case APP_EVT_AGENT_DEVICE_REMOVE:
+                skip_countdown_update = handle_rtc_agent_events(&msg);
+                break;
+
+            case APP_EVT_LOW_VOLTAGE:
+            case APP_EVT_CHARGING:
+            case APP_EVT_SHUTDOWN_LOW_BATTERY:
+                skip_countdown_update = handle_battery_events(&msg);
+                break;
+
+            case APP_EVT_OTA_START:
+            case APP_EVT_OTA_SUCCESS:
+            case APP_EVT_OTA_FAIL:
+                skip_countdown_update = handle_ota_events(&msg);
+                break;
+
+            case APP_EVT_SMART_CONFIG_START:
+            case APP_EVT_CONVOAI_OTA_CHECK:
+            case APP_EVT_CONVOAI_CONFIG_LOADING:
+            case APP_EVT_CONVOAI_START_TIMER_EXPIRE:
+            case APP_EVT_CONVOAI_EXIT:
+            case APP_EVT_CONVOAI_PLAY_AVI:
+            case APP_EVT_CONVOAI_RESTORE_IDLE_AVI:
 #if CONFIG_BK_SMART_CONFIG
-                case APP_EVT_IR_MODE_SWITCH:
-                    LOGI("APP_EVT_IR_MODE_SWITCH\n");
-                    if (is_standby == 0) {
-                        //bk_sconf_begin_to_switch_ir_mode();
-                        agora_ir_mode_config(msg.param);
-                    }
-                    break;
+            case APP_EVT_IR_MODE_SWITCH:
 #endif
-                case APP_EVT_ASR_WAKEUP:	//hi armino
-                    is_standby = 0;
-                    indicates_state &= ~(1<<INDICATES_STANDBY);
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_STANDBY);
-                    LOGI("APP_EVT_ASR_WAKEUP\n");
-                    try_play_prompt_tone(APP_EVT_ASR_WAKEUP);
-                    bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_480M);
-                    bk_wifi_sta_pm_disable();
-                    bk_wifi_set_wifi_media_mode(true);
+                skip_countdown_update = handle_lifecycle_events(&msg);
+                break;
+
+            case APP_EVT_CLOSE_BLUETOOTH:
+            case APP_EVT_SYNC_FLASH:
 #if CONFIG_SENTINO_IOT
-                    sentino_engine_start();
+            case APP_EVT_VOLUME_CHANGED:
 #endif
-#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
-                    lvgl_app_init();
-#endif
-                    //TODO optimize
-                    if (!is_network_provisioning){
-                        led_app_set(LED_OFF_GREEN,0);
-                    }
-#if (CONFIG_SYS_CPU0 && CONFIG_LINGXIN_AI_EN)
-                    LOGI("%s line:%d State_Event_Wakeup_Detected\r\n", __func__, __LINE__);
-                    state_machine_run_event(State_Event_Wakeup_Detected);
-#endif
-#if (CONFIG_SYS_CPU0 && CONFIG_BK_WSS_TRANS)
-                    rtc_websocket_rx_data_clean();
-#endif
-                    break;
-                case APP_EVT_ASR_STANDBY:	//byebye armino
-                    is_standby = 1;
-                    indicates_state |= (1<<INDICATES_STANDBY);
-                    s_active_tickets |= (1 << COUNTDOWN_TICKET_STANDBY);
-                    LOGI("APP_EVT_ASR_STANDBY\n");
-#if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE && !(CONFIG_A2DP_SINK_DEMO || CONFIG_HFP_HF_DEMO)
-                    app_play_prompt_tone(APP_EVT_ASR_STANDBY);
-#endif
-#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
-                    lvgl_app_deinit();
-#endif
-#if CONFIG_SENTINO_IOT
-                    sentino_engine_stop();
-#endif
-                    bk_wifi_set_wifi_media_mode(false);
-                    bk_wifi_sta_pm_enable();
-                    bk_pm_module_vote_cpu_freq(PM_DEV_ID_AUDIO, PM_CPU_FRQ_240M);
-                    break;
+                skip_countdown_update = handle_misc_events(&msg);
+                break;
 
-//-------------------network event start ------------------------------------------------------------------
-/*
- * Network abnormal event:APP_EVT_NETWORK_PROVISIONING_FAIL/APP_EVT_RECONNECT_NETWORK_FAIL/APP_EVT_RTC_CONNECTION_LOST/APP_EVT_AGENT_OFFLINE
- * Network resotre event:APP_EVT_AGENT_JOINED
- * If network retore event APP_EVT_AGENT_JOINED comes, it means all of the network abnormal event can be stop
- */
-                case APP_EVT_NETWORK_PROVISIONING:
-                    LOGI("APP_EVT_NETWORK_PROVISIONING\n");
-                    is_network_provisioning = 1;
-                    //优先级最高
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_NETWORK_ERROR);
-                    s_active_tickets |= (1 << COUNTDOWN_TICKET_PROVISIONING);
-                    indicates_state |= (1<<INDICATES_PROVISIONING);
-                    indicates_state &= ~((1<<INDICATES_AGENT_CONNECT) | (1<<INDICATES_POWER_ON) | (1<<INDICATES_WIFI_RECONNECT));
-                    warning_state &= ~ (HIGH_PRIORITY_WARNING_MASK);
-                    try_play_prompt_tone(APP_EVT_NETWORK_PROVISIONING);
-#if (CONFIG_DUAL_SCREEN_AVI_PLAY)
-                    media_app_lvgl_switch_ui(LVGL_UI_DISP_IN_TEXT);
-#endif
-                    break;
+            default:
+                break;
+        }
 
-                case APP_EVT_NETWORK_PROVISIONING_SUCCESS:
-                    indicates_state &= ~(1<<INDICATES_PROVISIONING);
-                    indicates_state |= (1<<INDICATES_AGENT_CONNECT);
-                    warning_state &= ~(1<<WARNING_PROVIOSION_FAIL);
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_PROVISIONING);
-                    // s_active_tickets |= (1 << COUNTDOWN_TICKET_STANDBY);
-                    LOGI("APP_EVT_NETWORK_PROVISIONING_SUCCESS\n");
-                    try_play_prompt_tone(APP_EVT_NETWORK_PROVISIONING_SUCCESS);
-                    break;
-
-                case APP_EVT_NETWORK_PROVISIONING_FAIL:
-                    LOGI("APP_EVT_NETWORK_PROVISIONING_FAIL\n");
-                    // network_err = 1;
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_PROVISIONING);
-                    s_active_tickets |= (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
-                    indicates_state &= ~(1<<INDICATES_PROVISIONING);
-                    warning_state |= 1<<WARNING_PROVIOSION_FAIL;
-
-                    try_play_prompt_tone(APP_EVT_NETWORK_PROVISIONING_FAIL);
-                    break;
-
-                case APP_EVT_RECONNECT_NETWORK:
-                    LOGI("APP_EVT_RECONNECT_NETWORK\n");
-                    warning_state &= ~(1<<WARNING_WIFI_FAIL);
-                    indicates_state |= (1<<INDICATES_WIFI_RECONNECT);
-                    indicates_state &= ~(1<<INDICATES_POWER_ON);
-                    try_play_prompt_tone(APP_EVT_RECONNECT_NETWORK);
-                    break;
-
-                case APP_EVT_RECONNECT_NETWORK_SUCCESS:
-                    LOGI("APP_EVT_RECONNECT_NETWORK_SUCCESS\n");
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_PROVISIONING);
-                    if (warning_state & WIFI_FAIL)
-                    {
-                        if (is_joined_agent && is_standby)
-                        {
-                            indicates_state |= (1<<INDICATES_STANDBY);
-                        }
-
-                    }else{
-                        indicates_state |= (1<<INDICATES_AGENT_CONNECT);
-                    }
-
-					          warning_state &= ~(1<<WARNING_WIFI_FAIL);
-                    indicates_state &= ~(1<<INDICATES_WIFI_RECONNECT);
-
-                    try_play_prompt_tone(APP_EVT_RECONNECT_NETWORK_SUCCESS);
-                    break;
-
-                case APP_EVT_RECONNECT_NETWORK_FAIL:
-                    s_active_tickets |= (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
-                    LOGI("APP_EVT_RECONNECT_NETWORK_FAIL\n");
-                    // network_err = 1;
-                    warning_state |= 1<<WARNING_WIFI_FAIL;
-                    indicates_state &= ~(1<<INDICATES_WIFI_RECONNECT);
-                    try_play_prompt_tone(APP_EVT_RECONNECT_NETWORK_FAIL);
-                    break;
-
-                case APP_EVT_RTC_CONNECTION_LOST:
-                    // network_err = 1;
-                    LOGI("APP_EVT_RTC_CONNECTION_LOST\n");
-                    warning_state |= 1<<WARNING_RTC_CONNECT_LOST;
-                    try_play_prompt_tone(APP_EVT_RTC_CONNECTION_LOST);
-                    break;
-
-                case APP_EVT_RTC_REJOIN_SUCCESS:
-                    LOGI("APP_EVT_RTC_REJOIN_SUCCESS\n");
-                    warning_state &= ~(1<<WARNING_RTC_CONNECT_LOST);
-                    if (is_joined_agent && is_standby)
-                    {
-                        indicates_state |= (1<<INDICATES_STANDBY);
-                    }
-                    break;
-
-                case APP_EVT_AGENT_JOINED:	//doesn't know whether restore from error
-                    is_joined_agent = 1;
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_NETWORK_ERROR);
-                    indicates_state &= ~(1<<INDICATES_AGENT_CONNECT);
-                    warning_state &= ~((1<<WARNING_RTC_CONNECT_LOST) | (1<<WARNING_AGENT_OFFLINE) | (1<<WARNING_WIFI_FAIL) | 1<<WARNING_AGENT_AGENT_START_FAIL);
-                    LOGI("APP_EVT_AGENT_JOINED \n");
-                    //TODO optimize
-                    is_network_provisioning = 0;
-                    indicates_state &= ~(1<<INDICATES_PROVISIONING);
-                    if(is_standby)  //mie
-                    {
-                        indicates_state |= (1<<INDICATES_STANDBY);
-                    }
-                    // try_play_prompt_tone(APP_EVT_AGENT_JOINED);  // intentionally disabled
-                    break;
-                case APP_EVT_AGENT_OFFLINE:
-                    // network_err = 1;
-                    is_joined_agent = 0;
-                    s_active_tickets |= (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
-                    LOGI("APP_EVT_AGENT_OFFLINE\n");
-                    warning_state |= 1<<WARNING_AGENT_OFFLINE;
-                    try_play_prompt_tone(APP_EVT_AGENT_OFFLINE);
-                    break;
-
-                case APP_EVT_AGENT_START_FAIL:
-                    s_active_tickets |= (1 << COUNTDOWN_TICKET_NETWORK_ERROR);
-                    LOGI("APP_EVT_AGENT_START_FAIL\n");
-                    warning_state |= 1<<WARNING_AGENT_AGENT_START_FAIL;
-                    try_play_prompt_tone(APP_EVT_AGENT_START_FAIL);
-                    break;
-
-                case APP_EVT_AGENT_DEVICE_REMOVE:
-                    LOGI("APP_EVT_AGENT_DEVICE_REMOVE\n");
-#if CONFIG_AGORA_IOT_SDK
-                    agora_stop();
-#endif
-                    break;
-
-//-------------------network event end ------------------------------------------------------------------////
-
-
-                case APP_EVT_LOW_VOLTAGE:
-                    LOGI("APP_EVT_LOW_VOLTAGE\n");
-                    skip_countdown_update = true;
-                    warning_state |= 1<<WARNING_LOW_BATTERY;
-                    try_play_prompt_tone(APP_EVT_LOW_VOLTAGE);
-                    break;
-
-                case APP_EVT_CHARGING:
-                    LOGI("APP_EVT_CHARGING\n");
-                    skip_countdown_update = true;
-					          warning_state &= ~(1<<WARNING_LOW_BATTERY);
-                    break;
-
-                case APP_EVT_SHUTDOWN_LOW_BATTERY:
-                    LOGI("APP_EVT_SHUTDOWN_LOW_BATTERY\n");
-                    skip_countdown_update = true;
-                    bk_config_sync_flash();
-                    break;
-
-                case APP_EVT_CLOSE_BLUETOOTH:
-                    rtos_delay_milliseconds(100);
-#if CONFIG_A2DP_SINK_DEMO || CONFIG_HFP_HF_DEMO
-                    LOGI("APP_EVT_CLOSE_BLUETOOTH no need to close !!!\n");
-#else
-                    LOGI("APP_EVT_CLOSE_BLUETOOTH\n");
-#if CONFIG_BK_BOARDING_SERVICE
-                    bk_genie_boarding_deinit();
-#endif
-#if CONFIG_BLUETOOTH
-                    bk_bluetooth_deinit();
-#endif
-#endif
-                    break;
-
-                // OTA相关事件
-                case APP_EVT_OTA_START:
-                    LOGI("APP_EVT_OTA_START\n");
-                    s_active_tickets |= (1 << COUNTDOWN_TICKET_OTA);
-
-                    #if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE
-                    ret = app_play_prompt_tone(APP_EVT_OTA_START);
-                    #endif
-
-                    break;
-
-                case APP_EVT_OTA_SUCCESS:
-                    LOGI("APP_EVT_OTA_SUCCESS\n");
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_OTA);
-
-                    #if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE
-                    ret = app_play_prompt_tone(APP_EVT_OTA_SUCCESS);
-                    #endif
-
-                    #if CONFIG_OTA_DISPLAY_PICTURE_DEMO
-                    bk_ota_reponse_state_to_audio(msg.event);
-                    #endif
-                    break;
-
-                case APP_EVT_OTA_FAIL:
-                    LOGI("APP_EVT_OTA_FAIL\n");
-                    s_active_tickets &= ~(1 << COUNTDOWN_TICKET_OTA);
-
-                    #if CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE
-                    ret = app_play_prompt_tone(APP_EVT_OTA_FAIL);
-                    #endif
-
-                    #if CONFIG_OTA_DISPLAY_PICTURE_DEMO
-                    bk_ota_reponse_state_to_audio(msg.event);
-                    #endif
-                    break;
-                case APP_EVT_SYNC_FLASH:
-                    LOGI("APP_EVT_SYNC_FLASH\n");
-                    bk_sconf_sync_flash_safely();
-                    break;
-#if CONFIG_SENTINO_IOT
-                case APP_EVT_VOLUME_CHANGED:
-                    LOGI("APP_EVT_VOLUME_CHANGED local=%u\n", msg.param);
-                    extern void app_dp_request_volume_report(unsigned char);
-                    app_dp_request_volume_report((unsigned char)msg.param);
-                    skip_countdown_update = true;
-                    break;
-#endif
-                default:
-                    break;
-            }
-            if(!skip_countdown_update)
-            {
+        if (!skip_countdown_update) {
 #if CONFIG_COUNTDOWN
-                update_countdown(s_active_tickets);
+            update_countdown(s_active_tickets);
 #endif
-            }
+        }
 
 #if CONFIG_LED_BLINK
-			      //led blink by states
-            led_blink(&warning_state, indicates_state);
+        led_blink(&s_warning_state, s_indicates_state);
 #endif
 
-            rtos_lock_mutex(&s_event_mutex);
-            app_event_handler_t *handler = s_event_handlers;
-            while (handler)
-            {
-                if (handler->event_type == msg.event)
-                {
-                  handler->callback(&msg, handler->user_data);
-                }
-                handler = handler->next;
+        /* Listener chain: subsystems that prefer to opt-in per event
+         * (vs editing the routing switch above) register a callback via
+         * app_event_register_handler. Today only sentino_engine uses it
+         * for APP_EVT_CLOUD_CONNECTED. */
+        rtos_lock_mutex(&s_event_mutex);
+        app_event_handler_t *handler = s_event_handlers;
+        while (handler) {
+            if (handler->event_type == msg.event) {
+                handler->callback(&msg, handler->user_data);
             }
-            rtos_unlock_mutex(&s_event_mutex);
+            handler = handler->next;
         }
+        rtos_unlock_mutex(&s_event_mutex);
     }
 
     LOGI("%s, exit\r\n", __func__);
