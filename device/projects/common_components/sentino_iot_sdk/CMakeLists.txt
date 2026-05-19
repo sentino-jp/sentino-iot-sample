@@ -31,6 +31,7 @@ list(APPEND srcs
     sentino_http_ota/sentino_ota.c
     sentino_factory/sentino_dynamic_register.c
     sentino_command/sentino_command_bus.c
+    sentino_command/sentino_command_router.c
 )
 endif()
 
