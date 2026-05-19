@@ -55,62 +55,37 @@ static beken_mutex_t s_event_mutex = NULL;
 static prompt_tone_url_info_t s_event_prompt_tone_info = {0};
 
 #if CONFIG_PROMPT_TONE_SOURCE_VFS
+/* Path strings: same identifier name across all codecs, only the file
+ * extension changes. Picked at compile time via TONE_EXT to collapse the
+ * previous 3× duplication (one block per CODEC_{MP3,WAV,PCM}). */
 #if CONFIG_PROMPT_TONE_CODEC_MP3
-static char asr_wakeup_prompt_tone_path[] = "/asr_wakeup_16k_mono_16bit_en.mp3";
-static char asr_standby_prompt_tone_path[] = "/asr_standby_16k_mono_16bit_en.mp3";
-static char network_provision_prompt_tone_path[] = "/network_provision_16k_mono_16bit_en.mp3";
-static char network_provision_success_prompt_tone_path[] = "/network_provision_success_16k_mono_16bit_en.mp3";
-static char network_provision_fail_prompt_tone_path[] = "/network_provision_fail_16k_mono_16bit_en.mp3";
-static char reconnect_network_prompt_tone_path[] = "/reconnect_network_16k_mono_16bit_en.mp3";
-static char reconnect_network_success_prompt_tone_path[] = "/reconnect_network_success_16k_mono_16bit_en.mp3";
-static char reconnect_network_fail_prompt_tone_path[] = "/reconnect_network_fail_16k_mono_16bit_en.mp3";
-static char rtc_connection_lost_prompt_tone_path[] = "/rtc_connection_lost_16k_mono_16bit_en.mp3";
-static char agent_joined_prompt_tone_path[] = "/agent_joined_16k_mono_16bit_en.mp3";
-static char agent_offline_prompt_tone_path[] = "/agent_offline_16k_mono_16bit_en.mp3";
-static char low_voltage_prompt_tone_path[] = "/low_voltage_16k_mono_16bit_en.mp3";
-static char ota_update_start_prompt_tone_path[] = "/ota_update_start_16k_mono_16bit_en.mp3";
-static char ota_update_success_prompt_tone_path[] = "/ota_update_success_16k_mono_16bit_en.mp3";
-static char ota_update_fail_prompt_tone_path[] = "/ota_update_fail_16k_mono_16bit_en.mp3";
-static char agent_start_fail_prompt_tone_path[] = "/agent_start_fail_16k_mono_16bit_en.mp3";
+#define TONE_EXT ".mp3"
+#elif CONFIG_PROMPT_TONE_CODEC_WAV
+#define TONE_EXT ".wav"
+#elif CONFIG_PROMPT_TONE_CODEC_PCM
+#define TONE_EXT ".pcm"
 #endif
+#define TONE_PATH(NAME) "/" NAME "_16k_mono_16bit_en" TONE_EXT
 
-#if CONFIG_PROMPT_TONE_CODEC_WAV
-static char asr_wakeup_prompt_tone_path[] = "/asr_wakeup_16k_mono_16bit_en.wav";
-static char asr_standby_prompt_tone_path[] = "/asr_standby_16k_mono_16bit_en.wav";
-static char network_provision_prompt_tone_path[] = "/network_provision_16k_mono_16bit_en.wav";
-static char network_provision_success_prompt_tone_path[] = "/network_provision_success_16k_mono_16bit_en.wav";
-static char network_provision_fail_prompt_tone_path[] = "/network_provision_fail_16k_mono_16bit_en.wav";
-static char reconnect_network_prompt_tone_path[] = "/reconnect_network_16k_mono_16bit_en.wav";
-static char reconnect_network_success_prompt_tone_path[] = "/reconnect_network_success_16k_mono_16bit_en.wav";
-static char reconnect_network_fail_prompt_tone_path[] = "/reconnect_network_fail_16k_mono_16bit_en.wav";
-static char rtc_connection_lost_prompt_tone_path[] = "/rtc_connection_lost_16k_mono_16bit_en.wav";
-static char agent_joined_prompt_tone_path[] = "/agent_joined_16k_mono_16bit_en.wav";
-static char agent_offline_prompt_tone_path[] = "/agent_offline_16k_mono_16bit_en.wav";
-static char low_voltage_prompt_tone_path[] = "/low_voltage_16k_mono_16bit_en.wav";
-static char ota_update_start_prompt_tone_path[] = "/ota_update_start_16k_mono_16bit_en.wav";
-static char ota_update_success_prompt_tone_path[] = "/ota_update_success_16k_mono_16bit_en.wav";
-static char ota_update_fail_prompt_tone_path[] = "/ota_update_fail_16k_mono_16bit_en.wav";
-static char agent_start_fail_prompt_tone_path[] = "/agent_start_fail_16k_mono_16bit_en.wav";
-#endif
-
-#if CONFIG_PROMPT_TONE_CODEC_PCM
-static char asr_wakeup_prompt_tone_path[] = "/asr_wakeup_16k_mono_16bit_en.pcm";
-static char asr_standby_prompt_tone_path[] = "/asr_standby_16k_mono_16bit_en.pcm";
-static char network_provision_prompt_tone_path[] = "/network_provision_16k_mono_16bit_en.pcm";
-static char network_provision_success_prompt_tone_path[] = "/network_provision_success_16k_mono_16bit_en.pcm";
-static char network_provision_fail_prompt_tone_path[] = "/network_provision_fail_16k_mono_16bit_en.pcm";
-static char reconnect_network_prompt_tone_path[] = "/reconnect_network_16k_mono_16bit_en.pcm";
-static char reconnect_network_success_prompt_tone_path[] = "/reconnect_network_success_16k_mono_16bit_en.pcm";
-static char reconnect_network_fail_prompt_tone_path[] = "/reconnect_network_fail_16k_mono_16bit_en.pcm";
-static char rtc_connection_lost_prompt_tone_path[] = "/rtc_connection_lost_16k_mono_16bit_en.pcm";
-static char agent_joined_prompt_tone_path[] = "/agent_joined_16k_mono_16bit_en.pcm";
-static char agent_offline_prompt_tone_path[] = "/agent_offline_16k_mono_16bit_en.pcm";
-static char low_voltage_prompt_tone_path[] = "/low_voltage_16k_mono_16bit_en.pcm";
-static char ota_update_start_prompt_tone_path[] = "/ota_update_start_16k_mono_16bit_en.pcm";
-static char ota_update_success_prompt_tone_path[] = "/ota_update_success_16k_mono_16bit_en.pcm";
-static char ota_update_fail_prompt_tone_path[] = "/ota_update_fail_16k_mono_16bit_en.pcm";
-static char agent_start_fail_prompt_tone_path[] = "/agent_start_fail_16k_mono_16bit_en.pcm";
-#endif
+static char asr_wakeup_prompt_tone_path[]                = TONE_PATH("asr_wakeup");
+static char asr_standby_prompt_tone_path[]               = TONE_PATH("asr_standby");
+static char network_provision_prompt_tone_path[]         = TONE_PATH("network_provision");
+static char network_provision_success_prompt_tone_path[] = TONE_PATH("network_provision_success");
+static char network_provision_fail_prompt_tone_path[]    = TONE_PATH("network_provision_fail");
+static char reconnect_network_prompt_tone_path[]         = TONE_PATH("reconnect_network");
+static char reconnect_network_success_prompt_tone_path[] = TONE_PATH("reconnect_network_success");
+static char reconnect_network_fail_prompt_tone_path[]    = TONE_PATH("reconnect_network_fail");
+static char rtc_connection_lost_prompt_tone_path[]       = TONE_PATH("rtc_connection_lost");
+/* agent_joined_prompt_tone_path intentionally omitted — the corresponding
+ * call in handle_rtc_agent_events is disabled (see APP_EVT_AGENT_JOINED
+ * case). Restore both this declaration and the s_prompt_tones[] entry if
+ * the prompt is re-enabled. */
+static char agent_offline_prompt_tone_path[]             = TONE_PATH("agent_offline");
+static char low_voltage_prompt_tone_path[]               = TONE_PATH("low_voltage");
+static char ota_update_start_prompt_tone_path[]          = TONE_PATH("ota_update_start");
+static char ota_update_success_prompt_tone_path[]        = TONE_PATH("ota_update_success");
+static char ota_update_fail_prompt_tone_path[]           = TONE_PATH("ota_update_fail");
+static char agent_start_fail_prompt_tone_path[]          = TONE_PATH("agent_start_fail");
 #endif  //CONFIG_PROMPT_TONE_SOURCE_VFS
 #endif  //CONFIG_AUD_INTF_SUPPORT_PROMPT_TONE
 
@@ -236,7 +211,8 @@ static const prompt_tone_entry_t s_prompt_tones[] = {
     TONE_ENTRY(APP_EVT_RECONNECT_NETWORK_SUCCESS,    reconnect_network_success_prompt_tone),
     TONE_ENTRY(APP_EVT_RECONNECT_NETWORK_FAIL,       reconnect_network_fail_prompt_tone),
     TONE_ENTRY(APP_EVT_RTC_CONNECTION_LOST,          rtc_connection_lost_prompt_tone),
-    TONE_ENTRY(APP_EVT_AGENT_JOINED,                 agent_joined_prompt_tone),
+    /* APP_EVT_AGENT_JOINED omitted — see comment by
+     * agent_joined_prompt_tone_path declaration. */
     TONE_ENTRY(APP_EVT_AGENT_OFFLINE,                agent_offline_prompt_tone),
     TONE_ENTRY(APP_EVT_LOW_VOLTAGE,                  low_voltage_prompt_tone),
     TONE_ENTRY(APP_EVT_OTA_START,                    ota_update_start_prompt_tone),
@@ -575,7 +551,8 @@ static bool handle_rtc_agent_events(const app_evt_msg_t *msg)
             if (s_is_standby) {
                 s_indicates_state |= (1 << INDICATES_STANDBY);
             }
-            // try_play_prompt_tone(APP_EVT_AGENT_JOINED);  // intentionally disabled
+            /* prompt_tone intentionally disabled here — see omission notes
+             * in the s_prompt_tones[] table and path declarations above. */
             break;
         case APP_EVT_AGENT_OFFLINE:
             LOGI("APP_EVT_AGENT_OFFLINE\n");
