@@ -31,10 +31,16 @@ typedef struct {
 
     /* Phone requested WiFi connect via thing.network.set. Adapter impl
      * persists Sentino provision via sentino_provision_apply_from_ble +
-     * triggers BK WiFi sta connect through BSP-injected fn. */
+     * triggers BK WiFi sta connect through BSP-injected fn.
+     *
+     * Both `port` (plain MQTT) and `ssl_port` (MQTT-over-TLS) are passed
+     * straight through from the App message — see ref-ble.md §5.2.2. A
+     * zero value means the App did not send that field. The engine picks
+     * which to use; proto is purely transport. */
     void (*on_network_set)(const char *sid,       const char *pw,
                            const char *user_id,   const char *asset_id,
-                           const char *mqtt_url,  uint16_t port);
+                           const char *mqtt_url,
+                           uint16_t port, uint16_t ssl_port);
 
     /* Phone requested WiFi scan via thing.network.getwifis. Adapter triggers
      * BK scan; results loop back via proto_emit_wifi_list when scan completes. */

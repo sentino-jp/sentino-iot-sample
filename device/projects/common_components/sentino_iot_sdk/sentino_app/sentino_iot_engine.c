@@ -105,11 +105,33 @@ void sentino_iot_engine_init(void)
         return;
     }
 
-    const sentino_triple_t *t = sentino_dev_info_get_triple();
-    LOGW("sentino init: broker=%s, port=%u, uuid=%s, pid=%s\n",
-         s_prov_cache.mqtt_broker, s_prov_cache.mqtt_port, t->Uuid, t->Pid);
+    /* Pick port + protocol by BLE-time intent (which field the App sent).
+     * Field-presence rule:
+     *   - mqtt_ssl_port set  → web sent `mqttSslPort` → TLS using that port
+     *   - mqtt_port set      → web sent `port`        → plain using that port
+     * Both stored means both arrived; prefer TLS (secure-by-default). Legacy
+     * NVS records without mqtt_ssl_port zero-init the field, so devices
+     * upgraded from a plain-only provisioning fall back to mqtt_port and
+     * need one factory_reset + re-BLE-config to unlock TLS. No port-value
+     * magic anywhere — caller-of-mqtt_init is the sole decision point. */
+    uint16_t port;
+    bool     use_tls;
+    if (s_prov_cache.mqtt_ssl_port != 0) {
+        port    = s_prov_cache.mqtt_ssl_port;
+        use_tls = true;
+    } else if (s_prov_cache.mqtt_port != 0) {
+        port    = s_prov_cache.mqtt_port;
+        use_tls = false;
+    } else {
+        LOGE("provision has neither mqtt_port nor mqtt_ssl_port — BLE config incomplete\n");
+        return;
+    }
 
-    sentino_mqtt_init(s_prov_cache.mqtt_broker, s_prov_cache.mqtt_port,
+    const sentino_triple_t *t = sentino_dev_info_get_triple();
+    LOGW("sentino init: broker=%s, port=%u, tls=%d, uuid=%s, pid=%s\n",
+         s_prov_cache.mqtt_broker, port, (int)use_tls, t->Uuid, t->Pid);
+
+    sentino_mqtt_init(s_prov_cache.mqtt_broker, port, use_tls,
                       t->Uuid, t->Secret, t->Pid);
 
     /* Register handlers BEFORE connect: CONNECTED event may fire from the

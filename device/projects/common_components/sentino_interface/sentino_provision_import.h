@@ -21,12 +21,20 @@ extern "C" {
  * MQTT.
  *
  * Empty/NULL strings are tolerated — they leave the corresponding NVS
- * field empty. port == 0 defaults to 8883 (TLS); legacy 1883 still works
- * on the engine side. */
+ * field empty.
+ *
+ * port / ssl_port are the App-sent values straight from the BLE message
+ * (ref-ble.md §5.2.2: `port` for plain MQTT, `mqttSslPort` for TLS).
+ * Either or both MAY be 0 to mean "App didn't send that field". Engine
+ * picks one based on presence — see sentino_iot_engine.c.
+ *
+ * No port-value magic here: passing 1883 / 8883 / anything else has the
+ * same effect — the number is stored and used verbatim. */
 void sentino_provision_apply_from_ble(const char *user_id,
                                       const char *asset_id,
                                       const char *broker_url,
-                                      uint16_t port);
+                                      uint16_t port,
+                                      uint16_t ssl_port);
 
 /* Make sure the device triple is loaded into RAM. Idempotent.
  * Boarding calls this before answering DBEVT_AGORA_DEVICE_ID_REQUEST so

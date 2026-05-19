@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>     /* atoi for mqttSslPort (string per ref-ble.md §5.2.2) */
 #include <stdint.h>
 
 #include <components/log.h>
@@ -110,9 +111,17 @@ static void handle_thing_network_set(cJSON *root)
     const char *user_id = cjson_str(data, "userId");
     const char *mq      = cjson_str(data, "mq");
 
-    cJSON  *port_obj = cJSON_GetObjectItem(data, "port");
-    uint16_t port    = (port_obj && (port_obj->type & 0xFF) == cJSON_Number)
-                        ? (uint16_t)port_obj->valueint : 0;
+    /* Per ref-ble.md §5.2.2:
+     *   port         (int)    — plain MQTT port    (default 1883)
+     *   mqttSslPort  (string) — MQTT-over-TLS port (default "8883")
+     * Both are independent fields — the App MAY send either or both.
+     * Proto layer is transport; engine picks which to use. Zero = absent. */
+    cJSON      *port_obj = cJSON_GetObjectItem(data, "port");
+    uint16_t    port     = (port_obj && (port_obj->type & 0xFF) == cJSON_Number)
+                            ? (uint16_t)port_obj->valueint : 0;
+
+    const char *ssl_str  = cjson_str(data, "mqttSslPort");
+    uint16_t    ssl_port = (ssl_str && *ssl_str) ? (uint16_t)atoi(ssl_str) : 0;
 
     cJSON *resp = cJSON_CreateObject();
     cJSON_AddStringToObject(resp, "type", "thing.network.set.response");
@@ -123,7 +132,7 @@ static void handle_thing_network_set(cJSON *root)
     cJSON_Delete(resp);
 
     if (s_ops.on_network_set) {
-        s_ops.on_network_set(sid, pw, user_id, bid, mq, port);
+        s_ops.on_network_set(sid, pw, user_id, bid, mq, port, ssl_port);
     }
 }
 

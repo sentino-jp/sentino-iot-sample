@@ -16,11 +16,14 @@ static sentino_ble_wifi_scan_fn_t    s_wifi_scan    = NULL;
 
 static void on_network_set(const char *sid,      const char *pw,
                            const char *user_id,  const char *asset_id,
-                           const char *mqtt_url, uint16_t port)
+                           const char *mqtt_url,
+                           uint16_t port, uint16_t ssl_port)
 {
-    /* Sentino side: persist user/asset/broker to NVS for the engine to pick up
-     * on the next sentino_iot_engine_init (triggered after WiFi-up). */
-    sentino_provision_apply_from_ble(user_id, asset_id, mqtt_url, port);
+    /* Sentino side: persist user/asset/broker/ports to NVS for the engine
+     * to pick up on the next sentino_iot_engine_init (triggered after
+     * WiFi-up). Both ports forwarded as-received; engine decides which to
+     * use by field-presence. */
+    sentino_provision_apply_from_ble(user_id, asset_id, mqtt_url, port, ssl_port);
 
     /* BK side: kick off WiFi STA connect. BSP owns BK boarding op codes. */
     if (s_wifi_connect) s_wifi_connect(sid, pw);
