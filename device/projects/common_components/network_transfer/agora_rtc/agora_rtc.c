@@ -282,14 +282,22 @@ static void __on_rejoin_channel_success(connection_id_t conn_id, uint32_t uid, i
 #if CONFIG_ENABLE_AGORA_DATASTREAM
 static void __on_stream_message(connection_id_t conn_id, uint32_t uid, int stream_id, const char* data, size_t length, uint64_t sentTs)
 {
-    __maybe_unused int ret = 0;
+    extern beken_queue_t datastream_queue;
     bk_agora_ai_data_stream_t msg;
-    msg.data = psram_zalloc(length+1);
-
+    msg.data = psram_zalloc(length + 1);
+    if (!msg.data) {
+        LOGW("psram alloc fail, drop %u bytes\n", (unsigned)length);
+        return;
+    }
     os_memcpy(msg.data, data, length);
-extern beken_queue_t datastream_queue;
-    ret = rtos_push_to_queue(&datastream_queue, &msg, BEKEN_NO_WAIT);
-
+    int ret = rtos_push_to_queue(&datastream_queue, &msg, BEKEN_NO_WAIT);
+    if (ret != BK_OK) {
+        /* Queue depth is 4 — bursty traffic overflows. Free here so the
+         * psram_zalloc above doesn't leak. Consider depth tuning if this
+         * fires often. */
+        LOGW("queue full, drop %u bytes (push ret=%d)\n", (unsigned)length, ret);
+        psram_free(msg.data);
+    }
 }
 #endif
 static void __register_agora_rtc_event_handler(agora_rtc_t *rtc)

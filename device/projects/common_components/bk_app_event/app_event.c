@@ -520,6 +520,14 @@ static void app_event_thread(beken_thread_arg_t data)
                     change_lgvl_avi_resouce(msg.param);
                     }
                     break;
+                case APP_EVT_CONVOAI_RESTORE_IDLE_AVI:
+                    LOGI("APP_EVT_CONVOAI_RESTORE_IDLE_AVI. ir_mode=%d\n", image_recognition_mode_enable);
+                    if (!image_recognition_mode_enable) {
+                    #if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
+                        lvgl_app_play("/genie_eye.avi");
+                    #endif
+                    }
+                    break;
 #if CONFIG_BK_SMART_CONFIG
                 case APP_EVT_IR_MODE_SWITCH:
                     LOGI("APP_EVT_IR_MODE_SWITCH\n");
@@ -857,6 +865,14 @@ static void app_event_thread(beken_thread_arg_t data)
                     LOGI("APP_EVT_SYNC_FLASH\n");
                     bk_sconf_sync_flash_safely();
                     break;
+#if CONFIG_SENTINO_IOT
+                case APP_EVT_VOLUME_CHANGED:
+                    LOGI("APP_EVT_VOLUME_CHANGED local=%u\n", msg.param);
+                    extern void app_dp_request_volume_report(unsigned char);
+                    app_dp_request_volume_report((unsigned char)msg.param);
+                    skip_countdown_update = true;
+                    break;
+#endif
                 default:
                     break;
             }

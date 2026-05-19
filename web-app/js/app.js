@@ -165,7 +165,7 @@ $('#form-login').addEventListener('submit', async (e) => {
     $('#login-result').classList.remove('hidden');
 
     // Populate scan screen
-    $('#scan-userId').textContent = uid;
+    $('#scan-userId').textContent = state.userId;
     $('#scan-assetId').textContent = state.assetId;
 
     // Transition after a moment

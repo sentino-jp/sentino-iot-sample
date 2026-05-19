@@ -38,6 +38,17 @@ int  Sentino_Dp_Report_Many_Export(const dp_obj_t *dps, size_t count);
  * same shape as agora_agent_device_access — see ref-mqtt §4.9). */
 int  Sentino_Nfc_Report_Export(const unsigned char *nfc_id, int len, int only_report);
 
+/* Business hook fired AFTER engine has pushed bind+info on a fresh mqtts
+ * CONNECTED. property_report from the handler arrives AFTER bind/info on
+ * the wire (worker serializes them). Does NOT wait for any bind ack —
+ * cloud accepts property_report based on device credential alone (上游
+ * bk7258aitoypro Rino_Mqtt_Connected_Callback 已实测).
+ *
+ * Fires on every CONNECTED (boot + each reconnect). Handler MUST be
+ * idempotent and apply its own throttling. Runs in app_event worker
+ * context — safe to publish synchronously here. */
+void Register_Sentino_Cloud_Ready_Cb(void (*cb)(void));
+
 #ifdef __cplusplus
 }
 #endif

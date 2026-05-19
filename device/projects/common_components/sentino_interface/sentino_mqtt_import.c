@@ -1,6 +1,7 @@
 #include "sentino_mqtt_import.h"
 #include "sentino_mqtt_dp.h"
-#include "sentino_mqtt.h"   /* sentino_mqtt_publish_nfc_report */
+#include "sentino_mqtt.h"          /* sentino_mqtt_publish_nfc_report */
+#include "sentino_iot_engine.h"    /* sentino_engine_register_cloud_ready_cb */
 
 void Register_Sentino_Dp_Set_Cb(dp_set_cb_t cb)
 {
@@ -21,4 +22,9 @@ int Sentino_Nfc_Report_Export(const unsigned char *nfc_id, int len, int only_rep
 {
     if (!nfc_id || len <= 0) return -1;
     return sentino_mqtt_publish_nfc_report(nfc_id, len, only_report);
+}
+
+void Register_Sentino_Cloud_Ready_Cb(void (*cb)(void))
+{
+    sentino_engine_register_cloud_ready_cb(cb);
 }

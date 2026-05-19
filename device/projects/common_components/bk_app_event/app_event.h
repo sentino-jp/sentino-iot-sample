@@ -46,7 +46,19 @@ typedef enum
     APP_EVT_CONVOAI_START_TIMER_EXPIRE,
     APP_EVT_CONVOAI_EXIT,
     APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE,
+    APP_EVT_CONVOAI_RESTORE_IDLE_AVI,
     APP_EVT_SMART_CONFIG_START,
+
+    /* Sentino MQTT (re)connected. Engine registers a handler via
+     * app_event_register_handler() to run publish_bind → publish_info →
+     * cloud_ready_cb in this worker context. Posted from the mqtts reader
+     * task — handler must own the heavy work, not the dispatcher. */
+    APP_EVT_CLOUD_CONNECTED,
+
+    /* Local volume changed (physical key). param = new local level
+     * (NOT cloud-mapped; converted in app_dp_handler before report).
+     * Posted from key_thread; handled in app_event worker → DP report. */
+    APP_EVT_VOLUME_CHANGED,
 } app_evt_type_t;
 
 static inline const char *app_emotion_2_avi_file(app_emotion_t emotion)
