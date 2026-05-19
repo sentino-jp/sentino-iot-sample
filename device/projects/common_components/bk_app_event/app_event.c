@@ -448,13 +448,6 @@ bk_err_t bk_ota_reponse_state_to_audio(int ota_state)
 #endif
 
 extern bool image_recognition_mode_enable;
-static void change_lgvl_avi_resouce(uint32_t value)
-{
-    LOGI("%s%d change lgvi avi resource, value=%u\n", __FUNCTION__, __LINE__, value);
-    #if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
-    lvgl_app_play((char *)app_emotion_2_avi_file(value));
-    #endif
-}
 
 extern void agora_ir_mode_config(bool enable);
 extern void prepare_config_network_main(void);
@@ -514,10 +507,15 @@ static void app_event_thread(beken_thread_arg_t data)
                     sentino_engine_stop();
 #endif
                     break;
-                case APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE:
-                    LOGI("APP_EVT_CONVOAI_CHANGE_LVGL_RESOURCE. ir_mode=%d\n", image_recognition_mode_enable);
+                case APP_EVT_CONVOAI_PLAY_AVI:
+                    LOGI("APP_EVT_CONVOAI_PLAY_AVI. ir_mode=%d\n", image_recognition_mode_enable);
                     if (!image_recognition_mode_enable) {
-                    change_lgvl_avi_resouce(msg.param);
+#if (CONFIG_DUAL_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_AVI_PLAY || CONFIG_SINGLE_SCREEN_FONT_DISPLAY)
+                        /* msg.param is (uintptr_t)(const char *) — producer
+                         * (business action handler) owns the business-to-path
+                         * translation. Worker stays vocabulary-agnostic. */
+                        lvgl_app_play((char *)(uintptr_t)msg.param);
+#endif
                     }
                     break;
                 case APP_EVT_CONVOAI_RESTORE_IDLE_AVI:
