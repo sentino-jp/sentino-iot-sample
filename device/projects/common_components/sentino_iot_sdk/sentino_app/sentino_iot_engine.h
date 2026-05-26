@@ -1,6 +1,7 @@
 #ifndef __SENTINO_IOT_ENGINE_H__
 #define __SENTINO_IOT_ENGINE_H__
 
+#include <stdint.h>         /* uint8_t */
 #include "sentino_mqtt.h"   /* sentino_rtc_params_t */
 
 #ifdef __cplusplus
@@ -39,6 +40,26 @@ typedef void (*sentino_rtc_release_cb_t)(void);
 
 void sentino_register_rtc_handoff(sentino_rtc_handoff_cb_t cb);
 void sentino_register_rtc_release(sentino_rtc_release_cb_t cb);
+
+/* WiFi link telemetry hook used by the cloud `ping` issue. Returns 0 on
+ * success, non-zero on failure. `level` is 1/2/3 (good/mid/poor),
+ * `quality` is 0~100 (signal percentage). Adapter (sentino_interface/)
+ * registers a BK-specific impl at boot; if unregistered the engine
+ * replies to ping with res=-1. Lifted from bk7258aitoypro Rino SDK
+ * 2.0.x Bsp_Wifi_Load_Signal_Level_Quality. */
+typedef int (*sentino_wifi_signal_query_fn_t)(uint8_t *level, uint8_t *quality);
+void sentino_engine_register_wifi_signal_query(sentino_wifi_signal_query_fn_t fn);
+
+/* Business hook for the cloud-issued `clean_data` command (ref-mqtt §5.5).
+ * Fires after a successful bind to ask the device to clear ONLY pre-bind
+ * temp data — offline log queues, provisioning-stage scratch, etc.
+ * Network config / triple / user-asset association must NOT be touched
+ * (that's `reset`'s job, §5.1). The handler receives `sub_uuid`: NULL
+ * means clean this device, non-NULL means clean a specific sub-device
+ * (gateway scenario). ack=0 — no response is sent. If unregistered, the
+ * cloud command is silently dropped (logged). */
+typedef void (*sentino_clean_data_handler_fn_t)(const char *sub_uuid);
+void sentino_engine_register_clean_data_handler(sentino_clean_data_handler_fn_t fn);
 
 /* Business hook fired AFTER the engine has pushed bind+info on a fresh
  * mqtts CONNECTED. Guarantees subsequent business publish (e.g.

@@ -122,6 +122,45 @@ void sentino_mqtt_register_connected_cb(void (*cb)(void));
 typedef void (*sentino_bind_ack_cb_t)(int res);
 void sentino_mqtt_register_bind_ack_cb(sentino_bind_ack_cb_t cb);
 
+/* ────────────────────────────────────────────────────────────────────
+ *  Time + bind status query (device-initiated, ref-mqtt §4.4 / §4.11)
+ * ──────────────────────────────────────────────────────────────────── */
+
+/** Request cloud time. Cloud replies on report_response with code="time"
+ *  carrying ts / sys_tz / zone_offset / local_date_time / is_dst / dst_*.
+ *  Result is delivered to the registered time_response cb. Returns 0
+ *  on publish success, -1 on transport error. */
+int sentino_mqtt_publish_time_request(void);
+
+/** Query device bind status from cloud. Cloud replies on report_response
+ *  with code="get_device_bind_status" carrying data.status (0=unbound,
+ *  1=bound). The default handler reconciles local NV bind_state with
+ *  cloud's view per ref-mqtt §4.11 — cloud is authoritative. */
+int sentino_mqtt_publish_bind_status_query(void);
+
+/* Cloud time response (ref-mqtt §4.4 reply). Strings are valid ONLY
+ * during the callback — copy if needed. Optional fields (dst_*,
+ * local_date_time) may be 0/NULL if the cloud doesn't supply them. */
+typedef struct {
+    uint32_t    ts;               /* UTC unix timestamp (sec) */
+    const char *sys_tz;           /* e.g. "Asia/Shanghai" */
+    int         zone_offset;      /* seconds, includes DST adjustment */
+    const char *local_date_time;  /* "yyyy-MM-dd HH:mm:ss" or NULL */
+    bool        is_dst;
+    bool        is_zone_dst;
+    uint32_t    dst_start_ts;     /* 0 if region has no DST */
+    uint32_t    dst_end_ts;       /* 0 if region has no DST */
+} sentino_time_response_t;
+
+typedef void (*sentino_time_response_fn_t)(const sentino_time_response_t *t);
+void sentino_mqtt_register_time_response_cb(sentino_time_response_fn_t cb);
+
+/* Cloud bind-status reply. status: 0=cloud has no binding for this device,
+ * 1=bound. The MQTT layer ALREADY calls sentino_provision_set_bind(status==1)
+ * before this cb fires, so business code sees the reconciled state in NV. */
+typedef void (*sentino_bind_status_response_fn_t)(int status);
+void sentino_mqtt_register_bind_status_response_cb(sentino_bind_status_response_fn_t cb);
+
 /* Provisioning info persistence (NVS) */
 void sentino_provision_info_write(const sentino_provision_info_t *info);
 void sentino_provision_info_read(sentino_provision_info_t *info);

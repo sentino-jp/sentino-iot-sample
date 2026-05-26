@@ -9,6 +9,7 @@ list(APPEND srcs
     sentino_engine_import.c
     sentino_rtc_export.c
     sentino_system_init.c
+    sentino_wifi_import.c
 )
 if (CONFIG_ENABLE_AGORA_DATASTREAM)
 list(APPEND srcs
@@ -25,5 +26,7 @@ armino_component_register(
     # #include "sentino_mqtt_dp.h" — consumers (main, etc.) need that
     # include path too.
     REQUIRES sentino_iot_sdk
-    PRIV_REQUIRES bk_common bk_app_event network_transfer agora-iot-sdk audio_engine main json psa_mbedtls
+    # bk_smart_config transitively brings <modules/wifi.h> + bk_wifi_sta_get_link_status
+    # used by sentino_wifi_import.c (same pattern as bk_boarding_service).
+    PRIV_REQUIRES bk_common bk_app_event bk_smart_config network_transfer agora-iot-sdk audio_engine main json psa_mbedtls
 )

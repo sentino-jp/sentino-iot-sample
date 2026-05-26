@@ -1,12 +1,15 @@
 #include <stdio.h>
 #include <string.h>
+#include <os/os.h>           /* rtos_delay_milliseconds */
 #include <components/log.h>
+#include <components/system.h>  /* bk_reboot */
 
 #include "sentino_iot_engine.h"
 #include "sentino_mqtt.h"
 #include "sentino_mqtt_dp.h"
 #include "sentino_dev_info.h"
 #include "sentino_ota.h"
+#include "cJSON.h"
 
 #include "app_event.h"
 
@@ -20,11 +23,15 @@ static bool                       s_sentino_started = false;
 static sentino_rtc_handoff_cb_t   s_rtc_handoff = NULL;
 static sentino_rtc_release_cb_t   s_rtc_release = NULL;
 static void                      (*s_cloud_ready_cb)(void) = NULL;
+static sentino_wifi_signal_query_fn_t s_wifi_signal_query = NULL;
+static sentino_clean_data_handler_fn_t s_clean_data_handler = NULL;
 static sentino_provision_info_t   s_prov_cache = {0};   /* snapshot at engine_init for worker */
 
 void sentino_register_rtc_handoff(sentino_rtc_handoff_cb_t cb) { s_rtc_handoff = cb; }
 void sentino_register_rtc_release(sentino_rtc_release_cb_t cb) { s_rtc_release = cb; }
 void sentino_engine_register_cloud_ready_cb(void (*cb)(void)) { s_cloud_ready_cb = cb; }
+void sentino_engine_register_wifi_signal_query(sentino_wifi_signal_query_fn_t fn) { s_wifi_signal_query = fn; }
+void sentino_engine_register_clean_data_handler(sentino_clean_data_handler_fn_t fn) { s_clean_data_handler = fn; }
 
 /* Posted from mqtts reader task — io_mutex is held there. Just enqueue
  * onto the app_event worker; bind/info/cb run there. */
@@ -52,17 +59,118 @@ static void on_cloud_connected_worker(app_evt_msg_t *msg, void *user_data)
     int rc2 = sentino_mqtt_publish_info(SENTINO_FW_VERSION, /*bind_status=*/true);
     if (rc2 != 0) LOGW("publish_info failed (rc=%d) — continuing\n", rc2);
 
+    /* ref-mqtt §4.4 + aitoypro convention: request cloud time right after
+     * info so any subsequent property_report/event timestamps are aligned
+     * with cloud. Cloud's `time` reply will hit handle_report_response_payload
+     * and fire the registered time_response cb (if any). Failure is
+     * non-fatal — local UTC stays whatever was set last. */
+    int rc3 = sentino_mqtt_publish_time_request();
+    if (rc3 != 0) LOGW("publish_time_request failed (rc=%d) — continuing\n", rc3);
+
     if (s_cloud_ready_cb) s_cloud_ready_cb();
+}
+
+/* ref-mqtt §5.3: reply on issue_response with the same id. Ported from
+ * bk7258aitoypro Rino_Mqtt_Cmd_Ping_Parse — minimum-viable subset that
+ * keeps the cloud keep-alive happy. Extra fields (currentSsid, wifiList,
+ * ipaddr, networkType) are doc-spec'd but the legacy reference omits
+ * them, so we match that. */
+static void handle_ping_issue(const char *payload_json)
+{
+    cJSON *root = payload_json ? cJSON_Parse(payload_json) : NULL;
+    cJSON *jid  = root ? cJSON_GetObjectItem(root, "id") : NULL;
+    const char *issue_id = (jid && cJSON_IsString(jid) && jid->valuestring)
+                           ? jid->valuestring : "";
+
+    cJSON *data = cJSON_CreateObject();
+    if (s_wifi_signal_query) {
+        uint8_t level = 0, quality = 0;
+        int rc = s_wifi_signal_query(&level, &quality);
+        if (rc == 0) {
+            cJSON_AddNumberToObject(data, "signal",      level);
+            cJSON_AddNumberToObject(data, "signalValue", quality);
+        } else {
+            LOGW("ping: wifi signal query rc=%d\n", rc);
+        }
+    } else {
+        LOGW("ping: no wifi_signal_query registered — replying empty data\n");
+    }
+
+    sentino_mqtt_publish_issue_response(issue_id, "ping", 0, "success", data);
+
+    cJSON_Delete(data);
+    if (root) cJSON_Delete(root);
+}
+
+/* ref-mqtt §5.1: cloud-issued reset → wipe BLE-provisioned user/asset/broker
+ * NV (NOT the factory triple) and reboot. Triggered when user unbinds via
+ * REST, or when cloud detects local/cloud bind-state divergence. Ported
+ * from bk7258aitoypro Rino_Mqtt_Cmd_Reset_Parse + Import_Callback. */
+static void handle_reset_issue(const char *payload_json)
+{
+    cJSON *root  = payload_json ? cJSON_Parse(payload_json) : NULL;
+    cJSON *jid   = root ? cJSON_GetObjectItem(root, "id")   : NULL;
+    cJSON *jdata = root ? cJSON_GetObjectItem(root, "data") : NULL;
+    cJSON *jclear = jdata ? cJSON_GetObjectItem(jdata, "clearData") : NULL;
+
+    const char *issue_id = (jid && cJSON_IsString(jid) && jid->valuestring)
+                           ? jid->valuestring : "";
+    bool clear_data = (jclear && cJSON_IsBool(jclear))   ? cJSON_IsTrue(jclear) :
+                      (jclear && cJSON_IsNumber(jclear)) ? jclear->valueint != 0 : false;
+
+    LOGW("cloud reset: clearData=%d — wiping provision + reboot\n", clear_data);
+
+    /* ACK first so cloud sees res=0 before we go dark on reboot. */
+    sentino_mqtt_publish_issue_response(issue_id, "reset", 0, "success", NULL);
+
+    if (root) cJSON_Delete(root);
+
+    /* Wipe BLE-provisioned info (user_id, asset_id, mqtt_broker, ports).
+     * Keeps the factory triple untouched — sentino_dev_info_reset would
+     * wipe THAT and brick the device's identity. clearData is currently
+     * a no-op extension hook (aitoypro reference also leaves it empty);
+     * the unconditional NV clear is the §5.1 semantics. */
+    (void)clear_data;
+    sentino_provision_info_clear();
+
+    /* Aitoypro uses 200ms to let MQTT flush the ack frame on the wire
+     * before the reboot kills the TCP. Matching that. */
+    rtos_delay_milliseconds(200);
+    bk_reboot();
+}
+
+/* ref-mqtt §5.5: clean_data fires from cloud right after a successful
+ * bind. ack=0 — no response on the wire. Device should clear ONLY
+ * pre-bind temp data (offline queues, scratch); NOT the network config
+ * or user/asset association (that's §5.1 reset's job). */
+static void handle_clean_data_issue(const char *payload_json)
+{
+    cJSON *root  = payload_json ? cJSON_Parse(payload_json) : NULL;
+    cJSON *jdata = root ? cJSON_GetObjectItem(root, "data")     : NULL;
+    cJSON *juuid = jdata ? cJSON_GetObjectItem(jdata, "subUuid") : NULL;
+
+    const char *sub_uuid = (juuid && cJSON_IsString(juuid) && juuid->valuestring)
+                           ? juuid->valuestring : NULL;
+
+    if (s_clean_data_handler) {
+        LOGI("cloud clean_data: subUuid=%s\n", sub_uuid ? sub_uuid : "(self)");
+        s_clean_data_handler(sub_uuid);
+    } else {
+        LOGW("cloud clean_data ignored — no handler registered\n");
+    }
+
+    if (root) cJSON_Delete(root);
 }
 
 static void sentino_issue_handler(const char *code, const char *payload_json)
 {
     LOGI("sentino issue: code=%s\n", code);
     if (0 == strcmp(code, "reset")) {
-        LOGI("cloud requested reset\n");
-        // TODO: trigger device reset
+        handle_reset_issue(payload_json);
     } else if (0 == strcmp(code, "ping")) {
-        LOGI("cloud ping\n");
+        handle_ping_issue(payload_json);
+    } else if (0 == strcmp(code, "clean_data")) {
+        handle_clean_data_issue(payload_json);
     } else if (0 == strcmp(code, "ota")) {
         sentino_ota_handle_issue(payload_json);
     } else if (0 == strcmp(code, "property_set")) {

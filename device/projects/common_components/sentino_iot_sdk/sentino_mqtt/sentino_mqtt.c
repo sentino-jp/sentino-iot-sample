@@ -57,6 +57,9 @@ static struct {
     void (*connected_cb)(void);
     sentino_bind_ack_cb_t   bind_ack_cb;
 
+    sentino_time_response_fn_t        time_response_cb;
+    sentino_bind_status_response_fn_t bind_status_response_cb;
+
     bool initialized;
 } s_mqtt = {0};
 
@@ -170,6 +173,54 @@ static void handle_report_response_payload(const char *payload, int payload_len)
         if (res && (res->type & 0xFF) == cJSON_Number) {
             LOGI("bind response: res=%d", res->valueint);
             if (s_mqtt.bind_ack_cb) s_mqtt.bind_ack_cb(res->valueint);
+        }
+    }
+
+    /* ref-mqtt §4.4 time response: cloud delivers UTC ts + timezone metadata.
+     * Cloud may ALSO push this asynchronously when the user switches timezone
+     * (per §4.4 last note) — same code path handles both. Strings live on
+     * the cJSON root; valid only during the callback. */
+    if (0 == strcmp(code->valuestring, "time")) {
+        cJSON *data = cJSON_GetObjectItem(root, "data");
+        if (data && s_mqtt.time_response_cb) {
+            cJSON *jts    = cJSON_GetObjectItem(data, "ts");
+            cJSON *jzone  = cJSON_GetObjectItem(data, "zone_offset");
+            cJSON *jtz    = cJSON_GetObjectItem(data, "sys_tz");
+            cJSON *jldt   = cJSON_GetObjectItem(data, "local_date_time");
+            cJSON *jdst   = cJSON_GetObjectItem(data, "is_dst");
+            cJSON *jzdst  = cJSON_GetObjectItem(data, "is_zone_dst");
+            cJSON *jdsts  = cJSON_GetObjectItem(data, "dst_start_ts");
+            cJSON *jdste  = cJSON_GetObjectItem(data, "dst_end_ts");
+
+            sentino_time_response_t t = {0};
+            if (jts   && cJSON_IsNumber(jts))   t.ts          = (uint32_t)jts->valueint;
+            if (jzone && cJSON_IsNumber(jzone)) t.zone_offset = jzone->valueint;
+            if (jtz   && cJSON_IsString(jtz))   t.sys_tz      = jtz->valuestring;
+            if (jldt  && cJSON_IsString(jldt))  t.local_date_time = jldt->valuestring;
+            if (jdst)  t.is_dst      = cJSON_IsTrue(jdst);
+            if (jzdst) t.is_zone_dst = cJSON_IsTrue(jzdst);
+            if (jdsts && cJSON_IsNumber(jdsts)) t.dst_start_ts = (uint32_t)jdsts->valueint;
+            if (jdste && cJSON_IsNumber(jdste)) t.dst_end_ts   = (uint32_t)jdste->valueint;
+
+            LOGI("time response: ts=%u tz=%s zone_offset=%d dst=%d",
+                 t.ts, t.sys_tz ? t.sys_tz : "(null)", t.zone_offset, t.is_dst);
+            s_mqtt.time_response_cb(&t);
+        }
+    }
+
+    /* ref-mqtt §4.11 get_device_bind_status response. Cloud is authoritative;
+     * the doc explicitly says "with this interface as the truth" when local
+     * NV disagrees. So we reconcile NV unconditionally before firing the cb. */
+    if (0 == strcmp(code->valuestring, "get_device_bind_status")) {
+        cJSON *data = cJSON_GetObjectItem(root, "data");
+        cJSON *jstatus = data ? cJSON_GetObjectItem(data, "status") : NULL;
+        if (jstatus && cJSON_IsNumber(jstatus)) {
+            int status = jstatus->valueint;
+            LOGI("bind_status response: status=%d (reconciling NV)", status);
+            sentino_provision_set_bind(status == 1);
+            if (s_mqtt.bind_status_response_cb) {
+                s_mqtt.bind_status_response_cb(status);
+            }
         }
     }
 
@@ -591,6 +642,29 @@ void sentino_mqtt_register_connected_cb(void (*cb)(void))
 void sentino_mqtt_register_bind_ack_cb(sentino_bind_ack_cb_t cb)
 {
     s_mqtt.bind_ack_cb = cb;
+}
+
+void sentino_mqtt_register_time_response_cb(sentino_time_response_fn_t cb)
+{
+    s_mqtt.time_response_cb = cb;
+}
+
+void sentino_mqtt_register_bind_status_response_cb(sentino_bind_status_response_fn_t cb)
+{
+    s_mqtt.bind_status_response_cb = cb;
+}
+
+int sentino_mqtt_publish_time_request(void)
+{
+    /* ack=1 because the cloud reply IS the data (ref-mqtt §4.4). data
+     * field omitted — cloud doesn't read input fields for time. */
+    return sentino_mqtt_publish_event("time", 1, NULL);
+}
+
+int sentino_mqtt_publish_bind_status_query(void)
+{
+    /* ack=1 — we need the {status:0|1} reply. */
+    return sentino_mqtt_publish_event("get_device_bind_status", 1, NULL);
 }
 
 
